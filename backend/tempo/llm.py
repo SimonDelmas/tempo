@@ -28,12 +28,22 @@ def extract_json(raw: str) -> str:
     return raw[start:end + 1] if start != -1 and end > start else raw
 
 
+JSON_HINT = "Réponds uniquement avec un objet json valide."
+
+
 def ensure_json_hint(messages: list[dict]) -> list[dict]:
-    """Les modèles OpenAI refusent `json_object` si aucun message ne contient « json »
-    (en minuscules) : on ajoute la consigne quand elle manque."""
-    if any("json" in str(m.get("content", "")) for m in messages):
+    """Les modèles OpenAI refusent `json_object` si les messages d'entrée ne contiennent pas
+    « json » en minuscules. Vibe passe par l'API Responses, où le message système devient
+    `instructions` et ne compte pas : la consigne doit donc figurer dans un message utilisateur."""
+    if any("json" in str(m.get("content", "")) for m in messages if m.get("role") != "system"):
         return messages
-    return [*messages, {"role": "system", "content": "Réponds uniquement avec un objet json valide."}]
+    result = list(messages)
+    last_user = max((i for i, m in enumerate(result) if m.get("role") == "user"), default=None)
+    if last_user is None:
+        return [*result, {"role": "user", "content": JSON_HINT}]
+    message = result[last_user]
+    result[last_user] = {**message, "content": f"{message['content']}\n\n{JSON_HINT}"}
+    return result
 
 
 def strip_fences(text: str) -> str:
