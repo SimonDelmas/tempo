@@ -28,6 +28,14 @@ def extract_json(raw: str) -> str:
     return raw[start:end + 1] if start != -1 and end > start else raw
 
 
+def ensure_json_hint(messages: list[dict]) -> list[dict]:
+    """Les modèles OpenAI refusent `json_object` si aucun message ne contient « json »
+    (en minuscules) : on ajoute la consigne quand elle manque."""
+    if any("json" in str(m.get("content", "")) for m in messages):
+        return messages
+    return [*messages, {"role": "system", "content": "Réponds uniquement avec un objet json valide."}]
+
+
 def strip_fences(text: str) -> str:
     match = re.fullmatch(r"\s*```(?:markdown|md)?\s*\n(.*?)\n```\s*", text, re.S)
     return match.group(1) if match else text.strip()
@@ -70,6 +78,8 @@ class OpenAICompatibleLLM(LLM):
         from openai import OpenAIError
 
         kwargs = {"response_format": {"type": "json_object"}} if json_mode else {}
+        if json_mode:
+            messages = ensure_json_hint(messages)
         try:
             response = self.client.chat.completions.create(
                 model=model, messages=messages, temperature=temperature, **kwargs)

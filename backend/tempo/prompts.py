@@ -2,7 +2,7 @@
 
 INBOX_SYSTEM = """Tu es l'assistant d'organisation personnelle de l'utilisateur (un salarié de Suez).
 Tu reçois le résumé d'un mail ou d'une conversation Teams. Tu dois l'organiser dans ses notes
-et ses tâches. Tu réponds UNIQUEMENT avec un objet JSON de la forme :
+et ses tâches. Tu réponds UNIQUEMENT avec un objet json de la forme :
 
 {
   "echange": {
