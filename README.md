@@ -46,6 +46,12 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
+- **Imputations** : comptes d'imputation (nom, alias, jours attribués) dans `comptes/`, un
+  projet est rattaché à un compte via `compte: <alias>` dans son frontmatter. Saisie par
+  semaine (8 h = 1 jour, chaque jour ouvré doit totaliser 8 h ; le compteur de la barre
+  latérale indique les jours incomplets de la semaine en cours), enregistrée dans
+  `imputations/AAAA/AAAA-Sxx.md`. « Proposer une répartition (IA) » s'appuie sur le rapport
+  hebdomadaire de la semaine et sur les jours restants de chaque compte.
 
 ## Tests
 

@@ -192,6 +192,27 @@ input.full { width: 100%; }
 .toast { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: 420px; }
 .toast.error { background: var(--danger); color: #fff; }
 
+
+/* --- imputations ------------------------------------------------------- */
+.panel.wide-panel { max-width: 1100px; overflow-x: auto; }
+.imputation-grid, .data-table { border-collapse: collapse; width: 100%; margin: 8px 0 12px; }
+.imputation-grid th, .imputation-grid td, .data-table th, .data-table td {
+  border-bottom: 1px solid var(--border); padding: 4px 6px; text-align: left; vertical-align: middle;
+}
+.imputation-grid thead th, .data-table thead th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.imputation-grid tbody th { font-weight: 600; min-width: 160px; }
+.imputation-grid td input { width: 64px; text-align: right; }
+.imputation-grid .today { background: var(--accent-soft); }
+.imputation-grid tfoot th, .imputation-grid tfoot td { border-bottom: none; font-weight: 600; }
+.num { text-align: right !important; font-variant-numeric: tabular-nums; }
+.total.ok { color: #3f8a4f; }
+.total.ko { color: var(--danger); }
+.days-input { width: 80px; text-align: right; }
+.block-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); margin: 8px 0; }
+.block-label textarea { color: var(--text); font-size: 14px; }
+.account-create input:first-child { flex: 2; }
+.data-table .tag { margin-right: 4px; }
+
 @media (max-width: 900px) {
   .app, .app.with-right { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .sidebar { max-height: 40vh; }

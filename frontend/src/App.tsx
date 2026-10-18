@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
 import EditorPane from "./components/EditorPane";
+import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
 import QuickOpen from "./components/QuickOpen";
 import ReportsView from "./components/ReportsView";
@@ -15,6 +16,7 @@ export default function App() {
   const [files, setFiles] = useState<NoteSummary[]>([]);
   const [revision, setRevision] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
+  const [imputationMissing, setImputationMissing] = useState(0);
   const [view, setView] = useState<View>("tasks");
   const [path, setPath] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
@@ -32,6 +34,7 @@ export default function App() {
     try {
       const state = await api.state();
       setInboxCount(state.inbox);
+      setImputationMissing(state.imputation_missing);
       if (state.revision !== lastRevision.current) {
         lastRevision.current = state.revision;
         setFiles(await api.files());
@@ -71,6 +74,7 @@ export default function App() {
   return (
     <div className={`app ${view === "editor" && path ? "with-right" : ""}`}>
       <Sidebar files={files} current={view === "editor" ? path : null} view={view} inboxCount={inboxCount}
+        imputationMissing={imputationMissing}
         setView={setView} onOpen={open} notify={notify} />
 
       <main>
@@ -81,6 +85,7 @@ export default function App() {
         {view === "tasks" && <TasksView config={config} revision={revision} onOpen={open} notify={notify} />}
         {view === "inbox" && <InboxView config={config} revision={revision} onOpen={open} notify={notify} />}
         {view === "reports" && <ReportsView config={config} files={files} onOpen={open} notify={notify} />}
+        {view === "imputations" && <ImputationsView config={config} revision={revision} onOpen={open} notify={notify} />}
       </main>
 
       {view === "editor" && path && <RightPanel path={path} revision={revision} onOpen={open} />}

@@ -27,6 +27,7 @@ en s'appuyant sur l'API LLM interne Vibe (compatible OpenAI).
    journal.py  notes quotidiennes et modèles
    inbox.py    résumés mails/Teams → propositions → application
    reports.py  rapport hebdo (4 sections) et rapport d'avancement de tâche
+   imputations.py  comptes d'imputation, heures par semaine, proposition de répartition
    llm.py      client OpenAI-compatible (Vibe), mode JSON
       │ REST /api
  Frontend React + Vite + CodeMirror 6 (frontend/)
@@ -43,6 +44,8 @@ taches/              T-XXX-titre.md
 projets/  sujets/  personnes/
 rapports/hebdo/      AAAA-Sxx.md
 rapports/taches/     T-XXX-AAAA-MM-JJ.md
+comptes/             <alias>.md (comptes d'imputation)
+imputations/AAAA/    AAAA-Sxx.md (heures saisies par jour et par compte)
 _templates/          journal.md, reunion.md, note.md
 ```
 
@@ -89,6 +92,29 @@ Sections : **Réunions et échanges**, **Actions réalisées**, **Non terminé**
 **Plan pour la semaine suivante**. Sources : réunions, échanges, journal et notes de la
 semaine, historique des tâches, tâches ouvertes et échéances, éléments saisis par
 l'utilisateur.
+
+## Comptes d'imputation
+
+Compte (`comptes/sap-mig.md`) :
+
+```yaml
+type: compte
+title: Migration SAP S/4
+alias: SAP-MIG      # utilisable en [[SAP-MIG]]
+days: 40            # jours attribués
+```
+
+Un projet est rattaché à un compte par `compte: SAP-MIG` dans son frontmatter.
+
+Semaine (`imputations/2026/2026-S42.md`) : frontmatter `hours` (`{date: {alias: heures}}`)
+et `comment` ; le corps (tableau + justification) est régénéré à chaque enregistrement.
+8 h = 1 jour ; chaque jour ouvré doit totaliser 8 h. Jours consommés = somme des heures de
+tous les fichiers de semaine / 8.
+
+Proposition de répartition : contexte = comptes (attribués, consommés, restants), projets
+rattachés, heures déjà saisies, rapport hebdomadaire de la semaine (à défaut, le contexte
+du rapport hebdo). Le LLM répond en JSON ; les alias inconnus sont écartés, chaque jour est
+arrondi à 0,5 h et ramené à 8 h. La proposition n'est enregistrée qu'après validation.
 
 ## Modèles
 

@@ -27,6 +27,8 @@ FOLDER_TYPES = {
     "sujets": "sujet",
     "personnes": "personne",
     "rapports": "rapport",
+    "comptes": "compte",
+    "imputations": "imputation",
     "_templates": "modele",
 }
 
@@ -118,7 +120,7 @@ class Index:
         self.conn.execute(
             "INSERT INTO notes VALUES (?,?,?,?,?,?,?,?,?)",
             (
-                rel, stem, str(meta.get("id") or ""), note_title(meta, body, stem),
+                rel, stem, str(meta.get("id") or meta.get("alias") or ""), note_title(meta, body, stem),
                 str(meta.get("type") or infer_type(rel)), date,
                 json.dumps(meta, ensure_ascii=False), content_hash(text), path.stat().st_mtime,
             ),

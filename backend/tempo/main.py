@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .config import PROJECT_ROOT, Settings, load_settings
+from .imputations import ImputationService
 from .inbox import InboxProposal, InboxService
 from .index import Index
 from .journal import JournalService
@@ -60,6 +61,27 @@ class WeeklyRequest(BaseModel):
     extra: str = ""
 
 
+class AccountCreate(BaseModel):
+    title: str
+    alias: str
+    days: float = 0
+
+
+class AccountPatch(BaseModel):
+    title: str | None = None
+    days: float | None = None
+
+
+class ProjectAccount(BaseModel):
+    compte: str | None = None
+
+
+class WeekHours(BaseModel):
+    date: str
+    hours: dict[str, dict[str, float]] = {}
+    comment: str = ""
+
+
 class Services:
     def __init__(self, settings: Settings, llm: LLM):
         self.settings = settings
@@ -69,6 +91,7 @@ class Services:
         self.journal = JournalService(self.vault, self.index)
         self.inbox = InboxService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.reports = ReportService(self.vault, self.index, self.tasks, llm, settings)
+        self.imputations = ImputationService(self.vault, self.index, self.reports, llm, settings)
 
 
 def _note_summary(note: dict) -> dict:
@@ -121,7 +144,8 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
 
     @app.get("/api/state")
     def get_state():
-        return {"revision": s.index.revision, "inbox": len(s.inbox.list())}
+        return {"revision": s.index.revision, "inbox": len(s.inbox.list()),
+                "imputation_missing": len(s.imputations.incomplete_days(dt.date.today()))}
 
     @app.post("/api/reindex")
     def reindex():
@@ -224,6 +248,46 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     @app.post("/api/reports/task/{task_id}")
     def task_report(task_id: str):
         return s.reports.task_report(task_id)
+
+    # --- comptes d'imputation --------------------------------------------
+
+    def _day(value: str | None) -> dt.date:
+        try:
+            return dt.date.fromisoformat(value) if value else dt.date.today()
+        except ValueError as exc:
+            raise VaultError(f"Date invalide : {value} (format AAAA-MM-JJ)") from exc
+
+    @app.get("/api/accounts")
+    def list_accounts():
+        return s.imputations.accounts()
+
+    @app.post("/api/accounts")
+    def create_account(body: AccountCreate):
+        return s.imputations.create_account(body.title, body.alias, body.days)
+
+    @app.patch("/api/accounts/{alias}")
+    def update_account(alias: str, body: AccountPatch):
+        return s.imputations.update_account(alias, body.title, body.days)
+
+    @app.get("/api/projects")
+    def list_projects():
+        return s.imputations.projects()
+
+    @app.put("/api/projects/{project_id}/account")
+    def set_project_account(project_id: str, body: ProjectAccount):
+        return s.imputations.set_project_account(project_id, body.compte)
+
+    @app.get("/api/imputations")
+    def get_week(date: str | None = None):
+        return s.imputations.week(_day(date))
+
+    @app.put("/api/imputations")
+    def save_week(body: WeekHours):
+        return s.imputations.save_week(_day(body.date), body.hours, body.comment)
+
+    @app.post("/api/imputations/propose")
+    def propose_week(date: str | None = None):
+        return s.imputations.propose(_day(date))
 
     if FRONTEND_DIST.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

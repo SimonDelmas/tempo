@@ -75,3 +75,30 @@ Format attendu : du Markdown avec ces sections :
 
 Règles : puces factuelles, chronologiques si utile, sources citées entre parenthèses avec
 leurs liens tels que fournis ([[...]]). N'invente rien ; écris "- Aucun." si une section est vide."""
+
+
+IMPUTATION_SYSTEM = """Tu proposes la répartition des heures de travail de l'utilisateur sur ses
+comptes d'imputation pour une semaine, à partir de son activité (rapport hebdomadaire ou notes)
+et des jours provisionnés sur chaque compte (fournis ci-dessous).
+
+Tu réponds UNIQUEMENT avec un objet json de la forme :
+
+{
+  "days": [
+    {"date": "AAAA-MM-JJ", "entries": [{"compte": "ALIAS", "hours": 6}, {"compte": "ALIAS2", "hours": 2}]}
+  ],
+  "comment": "2 à 4 phrases justifiant la répartition"
+}
+
+Règles :
+- Un jour ouvré = 8 heures exactement, réparties par multiples de 0,5 h ; un objet par jour
+  ouvré (lundi à vendredi).
+- N'utilise que les alias de comptes fournis. Le travail sur un projet s'impute sur le compte
+  auquel le projet est rattaché.
+- Répartis selon l'activité réelle de chaque jour quand elle est datée, sinon selon le poids
+  de chaque sujet dans la semaine.
+- Tiens compte des jours restants : évite de dépasser le provisionné d'un compte ; si
+  l'activité l'impose, signale le dépassement dans le commentaire.
+- Conserve les heures déjà saisies par l'utilisateur.
+- N'invente pas d'activité ; si un jour n'a aucune activité identifiable, répartis-le selon
+  la tendance de la semaine et dis-le dans le commentaire."""

@@ -54,6 +54,32 @@ export type Proposal = {
   duplicate_of: string | null;
 };
 
+export type Account = {
+  alias: string;
+  title: string;
+  days: number;
+  consumed_days: number;
+  remaining_days: number;
+  projects: string[];
+  path: string;
+};
+
+export type Project = { id: string; title: string; path: string; compte: string | null };
+
+/** heures par jour puis par alias de compte : { "2026-10-12": { "SAP-MIG": 6 } } */
+export type Hours = Record<string, Record<string, number>>;
+
+export type ImputationWeek = {
+  week: string;
+  start: string;
+  end: string;
+  days: string[];
+  hours: Hours;
+  totals: Record<string, number>;
+  comment: string;
+  path: string | null;
+};
+
 export type SearchResult = { path: string; title: string; type: string; snippet: string };
 
 export class ApiError extends Error {
@@ -81,7 +107,7 @@ const q = (params: Record<string, string>) => "?" + new URLSearchParams(params).
 
 export const api = {
   config: () => request<Config>("GET", "/api/config"),
-  state: () => request<{ revision: number; inbox: number }>("GET", "/api/state"),
+  state: () => request<{ revision: number; inbox: number; imputation_missing: number }>("GET", "/api/state"),
   files: () => request<NoteSummary[]>("GET", "/api/files"),
   readNote: (path: string) => request<Note>("GET", "/api/notes" + q({ path })),
   writeNote: (path: string, content: string, expected_hash: string | null) =>
@@ -108,6 +134,19 @@ export const api = {
   inboxDiscard: (path: string) => request("DELETE", "/api/inbox" + q({ path })),
   weeklyReport: (date: string, extra: string) =>
     request<{ path: string }>("POST", "/api/reports/weekly", { date, extra }),
+  accounts: () => request<Account[]>("GET", "/api/accounts"),
+  createAccount: (title: string, alias: string, days: number) =>
+    request<Account>("POST", "/api/accounts", { title, alias, days }),
+  updateAccount: (alias: string, changes: { title?: string; days?: number }) =>
+    request<Account>("PATCH", `/api/accounts/${encodeURIComponent(alias)}`, changes),
+  projects: () => request<Project[]>("GET", "/api/projects"),
+  setProjectAccount: (id: string, compte: string | null) =>
+    request<Project>("PUT", `/api/projects/${encodeURIComponent(id)}/account`, { compte }),
+  imputations: (date: string) => request<ImputationWeek>("GET", "/api/imputations" + q({ date })),
+  saveImputations: (date: string, hours: Hours, comment: string) =>
+    request<ImputationWeek>("PUT", "/api/imputations", { date, hours, comment }),
+  proposeImputations: (date: string) =>
+    request<{ hours: Hours; comment: string }>("POST", "/api/imputations/propose" + q({ date })),
   taskReport: (id: string) =>
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
 };
@@ -129,6 +168,8 @@ export const TYPE_LABELS: Record<string, string> = {
   sujet: "Sujet",
   personne: "Personne",
   rapport: "Rapport",
+  compte: "Compte",
+  imputation: "Imputations",
   inbox: "Inbox",
   modele: "Modèle",
   note: "Note",

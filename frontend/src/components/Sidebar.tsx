@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, NoteSummary, SearchResult } from "../api";
 
-export type View = "editor" | "tasks" | "inbox" | "reports";
+export type View = "editor" | "tasks" | "inbox" | "reports" | "imputations";
 
 type Props = {
   files: NoteSummary[];
   current: string | null;
   view: View;
   inboxCount: number;
+  imputationMissing: number;
   setView: (view: View) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
@@ -70,9 +71,9 @@ function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpe
   );
 }
 
-const DEFAULT_COLLAPSED = ["_templates", "rapports", "echanges", "00-inbox"];
+const DEFAULT_COLLAPSED = ["_templates", "rapports", "echanges", "00-inbox", "imputations"];
 
-export default function Sidebar({ files, current, view, inboxCount, setView, onOpen, notify }: Props) {
+export default function Sidebar({ files, current, view, inboxCount, imputationMissing, setView, onOpen, notify }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [collapsed, setCollapsed] = useState(() => new Set(DEFAULT_COLLAPSED));
@@ -120,6 +121,7 @@ export default function Sidebar({ files, current, view, inboxCount, setView, onO
       {nav("inbox", "Inbox", inboxCount ? String(inboxCount) : undefined)}
       {nav("tasks", "Tâches")}
       {nav("reports", "Rapports")}
+      {nav("imputations", "Imputations", imputationMissing ? String(imputationMissing) : undefined)}
 
       {creating ? (
         <div className="new-note">
