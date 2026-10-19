@@ -37,12 +37,20 @@ const sortFiles = (files: NoteSummary[]) =>
 const sortFolders = (entries: [string, Tree][]) =>
   entries.sort(([a], [b]) => (/^\d+$/.test(a) && /^\d+$/.test(b) ? b.localeCompare(a) : a.localeCompare(b)));
 
-function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpen }: {
+/** Chemins de tous les dossiers de l'arborescence (pour tout déplier). */
+function folderKeys(tree: Tree, prefix = ""): string[] {
+  return [...tree.folders.entries()].flatMap(([name, sub]) => {
+    const key = prefix ? `${prefix}/${name}` : name;
+    return [key, ...folderKeys(sub, key)];
+  });
+}
+
+function TreeNode({ name, tree, depth, prefix, current, expanded, toggle, onOpen }: {
   name: string; tree: Tree; depth: number; prefix: string; current: string | null;
-  collapsed: Set<string>; toggle: (key: string) => void; onOpen: (path: string) => void;
+  expanded: Set<string>; toggle: (key: string) => void; onOpen: (path: string) => void;
 }) {
   const key = prefix ? `${prefix}/${name}` : name;
-  const isCollapsed = collapsed.has(key);
+  const isCollapsed = !expanded.has(key);
   return (
     <li>
       <button className="tree-folder" style={{ paddingLeft: depth * 12 }} onClick={() => toggle(key)}>
@@ -52,7 +60,7 @@ function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpe
         <ul>
           {sortFolders([...tree.folders.entries()]).map(([child, sub]) => (
             <TreeNode key={child} name={child} tree={sub} depth={depth + 1} prefix={key} current={current}
-              collapsed={collapsed} toggle={toggle} onOpen={onOpen} />
+              expanded={expanded} toggle={toggle} onOpen={onOpen} />
           ))}
           {sortFiles(tree.files).map((f) => (
             <li key={f.path}>
@@ -68,14 +76,13 @@ function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpe
   );
 }
 
-const DEFAULT_COLLAPSED = ["_templates", "echanges", "00-inbox"];
-
 export default function NotesSidebar({ files, current, semantic, onOpen, notify }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [byMeaning, setByMeaning] = useState(false);
   const [status, setStatus] = useState<SemanticStatus | null>(null);
-  const [collapsed, setCollapsed] = useState(() => new Set(DEFAULT_COLLAPSED));
+  // dossiers dépliés : tout est plié par défaut
+  const [expanded, setExpanded] = useState(() => new Set<string>());
   const [creating, setCreating] = useState(false);
   const [newType, setNewType] = useState("reunion");
   const [newTitle, setNewTitle] = useState("");
@@ -95,8 +102,18 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
     if (byMeaning) api.semanticStatus().then(setStatus).catch(() => setStatus(null));
   }, [byMeaning]);
 
+  // déplie les dossiers de la note ouverte pour qu'elle reste visible dans l'arborescence
+  useEffect(() => {
+    if (!current) return;
+    const parts = current.split("/").slice(0, -1);
+    const ancestors = parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+    setExpanded((prev) => (ancestors.every((a) => prev.has(a)) ? prev : new Set([...prev, ...ancestors])));
+  }, [current]);
+
+  const toggleAll = () => setExpanded(expanded.size > 0 ? new Set() : new Set(folderKeys(tree)));
+
   const toggle = (key: string) =>
-    setCollapsed((prev) => {
+    setExpanded((prev) => {
       const next = new Set(prev);
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
@@ -148,6 +165,12 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
           <button className={`ghost toggle ${byMeaning ? "on" : ""}`} onClick={() => setByMeaning((b) => !b)}
             title="Recherche par le sens (notes proches même sans les mêmes mots)">≈</button>
         )}
+        {!query.trim() && (
+          <button className="ghost toggle" onClick={toggleAll}
+            title={expanded.size > 0 ? "Plier tous les dossiers" : "Déplier tous les dossiers"}>
+            {expanded.size > 0 ? "⊟" : "⊞"}
+          </button>
+        )}
       </div>
       {byMeaning && status && (
         <p className={`small ${status.error ? "warning" : "muted"}`}>
@@ -169,7 +192,7 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
         <ul className="tree">
           {sortFolders([...tree.folders.entries()]).map(([name, sub]) => (
             <TreeNode key={name} name={name} tree={sub} depth={0} prefix="" current={current}
-              collapsed={collapsed} toggle={toggle} onOpen={onOpen} />
+              expanded={expanded} toggle={toggle} onOpen={onOpen} />
           ))}
           {sortFiles(tree.files).map((f) => (
             <li key={f.path}>

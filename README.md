@@ -74,6 +74,8 @@ http://localhost:5173.
   vectorisées en arrière-plan dans `<vault>/.tempo/vectors.db` (sqlite-vec), seulement
   quand elles changent.
 - **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`.
+- **Arborescence** : les dossiers sont pliés par défaut, ceux de la note ouverte se
+  déplient ; le bouton ⊞ / ⊟ à côté de la recherche déplie ou plie tout.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,
   `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour
   l'ouverture rapide. Sauvegarde automatique ; les modifications faites dans un autre
