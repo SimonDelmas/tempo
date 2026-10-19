@@ -2,7 +2,7 @@
 
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from pydantic import BaseModel, ValidationError
 
@@ -56,6 +56,11 @@ class LLM:
              temperature: float = 0.2) -> str:
         raise NotImplementedError
 
+    def chat_stream(self, messages: list[dict], *, model: str, json_mode: bool = False,
+                    temperature: float = 0.2) -> Iterator[str]:
+        """Réponse par morceaux ; par défaut, un seul morceau."""
+        yield self.chat(messages, model=model, json_mode=json_mode, temperature=temperature)
+
     def chat_json[T: BaseModel](self, messages: list[dict], *, model: str, schema: type[T],
                                 retries: int = 1) -> T:
         msgs = list(messages)
@@ -97,12 +102,29 @@ class OpenAICompatibleLLM(LLM):
             raise LLMError(f"Erreur de l'API LLM : {exc}") from exc
         return response.choices[0].message.content or ""
 
+    def chat_stream(self, messages, *, model, json_mode=False, temperature=0.2):
+        from openai import OpenAIError
+
+        kwargs = {"response_format": {"type": "json_object"}} if json_mode else {}
+        if json_mode:
+            messages = ensure_json_hint(messages)
+        try:
+            stream = self.client.chat.completions.create(
+                model=model, messages=messages, temperature=temperature, stream=True, **kwargs)
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except OpenAIError as exc:
+            raise LLMError(f"Erreur de l'API LLM : {exc}") from exc
+
 
 class FakeLLM(LLM):
-    """Renvoie des réponses prédéfinies (liste ou fonction) et mémorise les appels."""
+    """Renvoie des réponses prédéfinies (liste ou fonction) et mémorise les appels.
+    Avec `chunk`, `chat_stream` découpe chaque réponse en morceaux de cette taille."""
 
-    def __init__(self, responses: list[str] | Callable[[list[dict], str], str]):
+    def __init__(self, responses: list[str] | Callable[[list[dict], str], str], chunk: int = 0):
         self.responses = responses
+        self.chunk = chunk
         self.calls: list[dict] = []
 
     def chat(self, messages, *, model, json_mode=False, temperature=0.2):
@@ -110,6 +132,12 @@ class FakeLLM(LLM):
         if callable(self.responses):
             return self.responses(messages, model)
         return self.responses.pop(0)
+
+    def chat_stream(self, messages, *, model, json_mode=False, temperature=0.2):
+        text = self.chat(messages, model=model, json_mode=json_mode, temperature=temperature)
+        size = self.chunk or len(text) or 1
+        for i in range(0, len(text), size):
+            yield text[i:i + size]
 
 
 class DisabledLLM(LLM):

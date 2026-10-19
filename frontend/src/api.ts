@@ -149,8 +149,10 @@ export const api = {
     request<{ hours: Hours; comment: string }>("POST", "/api/imputations/propose" + q({ date })),
   taskReport: (id: string) =>
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
-  chat: (messages: { role: "user" | "assistant"; content: string }[]) =>
-    request<ChatReply>("POST", "/api/chat", { messages }),
+  chat: (messages: ChatHistory) => request<ChatReply>("POST", "/api/chat", { messages }),
+  chatStream,
+  chatApply: (proposal: ChatProposal) =>
+    request<{ path: string; message: string }>("POST", "/api/chat/apply", proposal),
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -192,4 +194,57 @@ export function toEmailText(markdown: string): string {
 }
 
 export type ChatStep = { tool: string; args: Record<string, unknown>; summary: string | null };
-export type ChatReply = { answer: string; steps: ChatStep[]; links: Record<string, string> };
+export type ChatProposal = {
+  kind: "create_task" | "update_task" | "journal";
+  title: string;
+  description: string;
+  project: string | null;
+  priority: string | null;
+  status: string | null;
+  due: string | null;
+  task_id: string | null;
+  note: string;
+  line: string;
+};
+export type ChatReply = {
+  answer: string;
+  steps: ChatStep[];
+  links: Record<string, string>;
+  proposals: ChatProposal[];
+};
+export type ChatEvent =
+  | ({ type: "step" } & ChatStep)
+  | { type: "delta"; text: string }
+  | ({ type: "done" } & ChatReply)
+  | { type: "error"; detail: string };
+
+type ChatHistory = { role: "user" | "assistant"; content: string }[];
+
+/** Réponse de l'agent diffusée en Server-Sent Events ; renvoie l'événement final. */
+async function chatStream(messages: ChatHistory, onEvent: (event: ChatEvent) => void): Promise<ChatReply> {
+  const response = await fetch("/api/chat/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messages }),
+  });
+  if (!response.ok || !response.body) {
+    throw new ApiError(response.status, await response.json().catch(() => null));
+  }
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const part of parts) {
+      if (!part.startsWith("data: ")) continue;
+      const event = JSON.parse(part.slice(6)) as ChatEvent;
+      if (event.type === "error") throw new Error(event.detail);
+      onEvent(event);
+      if (event.type === "done") return event;
+    }
+  }
+  throw new Error("Réponse de l'agent interrompue");
+}

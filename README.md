@@ -41,9 +41,10 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
   Imputations) ; chaque espace retrouve la dernière page consultée.
 - **Chat** : questions en langage naturel sur les notes et les tâches. L'agent consulte le
-  vault en lecture seule (recherche, lecture de notes, liste et historique des tâches) et
-  cite ses sources en `[[liens]]` cliquables. Les conversations sont conservées dans le
-  navigateur.
+  vault (recherche, lecture de notes, liste et historique des tâches), cite ses sources en
+  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une
+  tâche, de mettre à jour une tâche ou d'ajouter une ligne au journal : rien n'est écrit avant
+  « Appliquer ». Les conversations sont conservées dans le navigateur.
 - **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,
   `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour

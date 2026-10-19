@@ -3,7 +3,8 @@ import { ReactNode } from "react";
 /** Rendu Markdown minimal des réponses de l'agent : titres, listes, paragraphes, **gras**,
  *  `code` et liens [[…]] cliquables (sans HTML injecté). */
 
-type Props = { text: string; links: Record<string, string>; onOpen: (path: string) => void };
+/** links : liens résolus en chemins ; null pendant la diffusion (pas encore résolus) */
+type Props = { text: string; links: Record<string, string> | null; onOpen: (path: string) => void };
 
 const INLINE_RE = /\*\*([^*]+)\*\*|`([^`]+)`|\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
 
@@ -17,10 +18,12 @@ function inline(text: string, links: Props["links"], onOpen: Props["onOpen"]): R
     else if (m[2] !== undefined) nodes.push(<code key={key}>{m[2]}</code>);
     else {
       const name = m[3].trim();
-      const path = links[name];
+      const path = links?.[name];
       nodes.push(path
         ? <button key={key} className="wikilink" title={path} onClick={() => onOpen(path)}>{m[4] ?? name}</button>
-        : <span key={key} className="wikilink missing" title="Note introuvable">{m[4] ?? name}</span>);
+        : <span key={key} className={`wikilink ${links ? "missing" : ""}`} title={links ? "Note introuvable" : undefined}>
+          {m[4] ?? name}
+        </span>);
     }
     last = m.index + m[0].length;
   }

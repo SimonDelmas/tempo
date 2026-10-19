@@ -282,3 +282,14 @@ input.full { width: 100%; }
 .chat-input { display: flex; gap: 8px; align-items: flex-end; padding: 12px 24px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .chat-input textarea { flex: 1; resize: none; max-width: 760px; margin-left: auto; }
 .chat-input button { margin-right: auto; }
+.chat-message .thinking { color: var(--muted); font-style: italic; }
+.chat-live-steps { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); }
+.proposal-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.proposal-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
+  border: 1px dashed var(--accent); background: var(--bg);
+}
+.proposal-item .grow { flex: 1; min-width: 0; }
+.proposal-item.applied { border-style: solid; border-color: var(--border); }
+.proposal-item.ignored { opacity: .55; border-color: var(--border); }
+.proposal-title { font-weight: 600; }

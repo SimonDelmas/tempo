@@ -1,14 +1,15 @@
 """API HTTP de Tempo et service du frontend compilé."""
 
 import datetime as dt
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .chat import ChatMessage, ChatService
+from .chat import ChatMessage, ChatProposal, ChatService
 from .config import PROJECT_ROOT, Settings, load_settings
 from .imputations import ImputationService
 from .inbox import InboxProposal, InboxService
@@ -96,7 +97,7 @@ class Services:
         self.journal = JournalService(self.vault, self.index)
         self.inbox = InboxService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.reports = ReportService(self.vault, self.index, self.tasks, llm, settings)
-        self.chat = ChatService(self.vault, self.index, self.tasks, llm, settings)
+        self.chat = ChatService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.imputations = ImputationService(self.vault, self.index, self.reports, llm, settings)
 
 
@@ -302,6 +303,26 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
         if not body.messages or body.messages[-1].role != "user":
             raise VaultError("La conversation doit se terminer par un message de l'utilisateur")
         return s.chat.ask(body.messages)
+
+    @app.post("/api/chat/stream")
+    def chat_stream(body: ChatRequest):
+        """Réponse diffusée en Server-Sent Events (step, delta, done ou error)."""
+        if not body.messages or body.messages[-1].role != "user":
+            raise VaultError("La conversation doit se terminer par un message de l'utilisateur")
+
+        def events():
+            try:
+                for event in s.chat.stream(body.messages):
+                    yield f"data: {json.dumps(event)}\n\n"
+            except (LLMError, VaultError) as exc:
+                yield f"data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n"
+
+        return StreamingResponse(events(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.post("/api/chat/apply")
+    def chat_apply(proposal: ChatProposal):
+        return s.chat.apply(proposal)
 
     if FRONTEND_DIST.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")

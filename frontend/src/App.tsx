@@ -119,6 +119,13 @@ export default function App() {
     return target;
   }, []);
 
+  const replaceChatEntry = useCallback((id: string, index: number, entry: ChatEntry) => {
+    setChats((prev) => prev.map((c) => c.id === id
+      ? { ...c, messages: c.messages.map((m, i) => (i === index ? entry : m)) }
+      : c));
+    window.setTimeout(poll, 300);
+  }, [poll]);
+
   if (!config) return <div className="loading">Chargement…</div>;
 
   const sidebar = {
@@ -146,7 +153,7 @@ export default function App() {
       onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
     chat: <ChatView config={config} conversation={chats.find((c) => c.id === params.c) ?? null}
-      onAppend={appendChat} onOpen={open} />,
+      onAppend={appendChat} onReplace={replaceChatEntry} onOpen={open} notify={notify} />,
   }[space];
 
   const layout = [sidebar ? "with-sidebar" : "", path ? "with-right" : ""].join(" ");

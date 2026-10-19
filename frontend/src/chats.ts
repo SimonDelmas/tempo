@@ -1,4 +1,4 @@
-import { ChatStep } from "./api";
+import { ChatProposal, ChatStep } from "./api";
 
 /** Conversations avec l'agent, conservées dans le navigateur (localStorage). */
 
@@ -7,7 +7,16 @@ export type ChatEntry = {
   content: string;
   steps?: ChatStep[];
   links?: Record<string, string>;
+  proposals?: ProposalState[];
   error?: boolean;
+};
+
+/** proposition de l'agent et suite donnée par l'utilisateur */
+export type ProposalState = {
+  proposal: ChatProposal;
+  state: "pending" | "applied" | "ignored";
+  path?: string;
+  message?: string;
 };
 
 export type Conversation = { id: string; title: string; updated: string; messages: ChatEntry[] };
