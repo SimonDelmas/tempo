@@ -81,7 +81,8 @@ http://localhost:5173.
   l'ouverture rapide. Sauvegarde automatique ; les modifications faites dans un autre
   éditeur sont rechargées, et un conflit est signalé si les deux versions divergent.
   Bouton **Aperçu** : aperçu en direct façon Obsidian (syntaxe Markdown masquée hors de la
-  ligne en cours, puces, cases à cocher cliquables). Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
+  ligne en cours, puces, cases à cocher cliquables, formules
+  mathématiques `$0.2 m/s$` ou `$$…$$` rendues par KaTeX). Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
   liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
   (ou de la note entière) ; le résultat est relu avant d'être inséré.
 - **Tâches** : deux onglets inspirés d'Azure DevOps.

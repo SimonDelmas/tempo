@@ -1,11 +1,13 @@
 import { syntaxTree } from "@codemirror/language";
 import { EditorState, Range } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
+import { frontmatterEnd, inMath, mathPreview } from "./mathPreview";
 
 /**
  * Aperçu en direct façon Obsidian : hors des lignes où se trouve le curseur, la syntaxe
  * Markdown est masquée (#, **, `, [[ ]], [texte](url)), les puces deviennent des points et
- * les cases « - [ ] » des cases à cocher cliquables. Le texte du fichier n'est jamais modifié,
+ * les cases « - [ ] » des cases à cocher cliquables et les formules `$…$` / `$$…$$` sont rendues
+ * par KaTeX (`mathPreview.ts`). Le texte du fichier n'est jamais modifié,
  * sauf en cochant une case.
  */
 
@@ -42,16 +44,6 @@ const bullet = Decoration.replace({ widget: new BulletWidget() });
 const linkText = Decoration.mark({ class: "cm-lp-link" });
 const done = Decoration.mark({ class: "cm-lp-done" });
 
-/** fin du frontmatter YAML (non décoré), ou 0 */
-function frontmatterEnd(state: EditorState): number {
-  const doc = state.doc;
-  if (doc.lines < 2 || doc.line(1).text.trim() !== "---") return 0;
-  for (let n = 2; n <= doc.lines; n++) {
-    if (doc.line(n).text.trim() === "---") return doc.line(n).to;
-  }
-  return 0;
-}
-
 /** lignes touchées par la sélection : leur syntaxe reste visible pour l'édition */
 function activeLines(state: EditorState): Set<number> {
   const lines = new Set<number>();
@@ -79,6 +71,7 @@ function buildDecorations(view: EditorView, hasFocus: boolean): DecorationSet {
         if (node.to <= skipUntil) return node.name === "Document" ? undefined : false;
         const name = node.name;
         if (isActive(node.from)) return;
+        if (inMath(state, node.from)) return false;
 
         if (name === "TaskMarker") {
           const checked = state.sliceDoc(node.from, node.to).toLowerCase() === "[x]";
@@ -127,7 +120,7 @@ function buildDecorations(view: EditorView, hasFocus: boolean): DecorationSet {
     for (const match of text.matchAll(WIKILINK_RE)) {
       const start = from + match.index;
       const end = start + match[0].length;
-      if (end <= skipUntil || isActive(start)) continue;
+      if (end <= skipUntil || isActive(start) || inMath(state, start)) continue;
       ranges.push(hidden.range(start, start + 2 + (match[1]?.length ?? 0)));
       ranges.push(hidden.range(end - 2, end));
     }
@@ -135,7 +128,7 @@ function buildDecorations(view: EditorView, hasFocus: boolean): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-export const livePreview = ViewPlugin.fromClass(
+const syntaxPreview = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
     /** éléments remplacés uniquement : le curseur les saute d'un bloc */
@@ -164,3 +157,5 @@ export const livePreview = ViewPlugin.fromClass(
     provide: (plugin) => EditorView.atomicRanges.of((view) => view.plugin(plugin)?.atomic ?? Decoration.none),
   },
 );
+
+export const livePreview = [mathPreview, syntaxPreview];

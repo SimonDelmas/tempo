@@ -272,7 +272,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] MVP : vault, index, éditeur, tâches (kanban), inbox, rapport hebdo, rapport de tâche
 - [x] Embeddings (sqlite-vec) : suggestions de liens, recherche sémantique, outil du chat
 - [x] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer / reformuler une sélection)
-- [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher)
+- [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher, formules `$…$` / `$$…$$` rendues par KaTeX)
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI

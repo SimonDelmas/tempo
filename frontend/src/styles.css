@@ -431,3 +431,9 @@ button.toggle.on { color: var(--accent); background: var(--accent-soft); }
 .search-row .toggle { padding: 4px 9px; }
 .suggestion-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
 button.mini { padding: 0 6px; line-height: 1.4; }
+.cm-lp-math { cursor: text; }
+.cm-lp-math-block { padding: .35em 0; overflow-x: auto; }
+.cm-lp-math-block .katex-display { margin: 0; }
+.cm-lp-math { cursor: text; }
+.cm-lp-math-block { padding: .35em 0; overflow-x: auto; }
+.cm-lp-math-block .katex-display { margin: 0; }
