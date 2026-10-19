@@ -18,27 +18,49 @@ en s'appuyant sur l'API LLM interne Vibe (compatible OpenAI).
 
 ## Architecture
 
+Client lourd en Rust : une application de bureau Tauri 2 embarque l'interface React et le
+cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
+
 ```
  Vault Markdown  ◄── éditeurs externes
-      │ watchdog
- Backend FastAPI (backend/tempo)
-   main.py     routes REST /api, service du frontend compilé
-   config.py   paramètres lus dans .env
-   vault.py    lecture/écriture, frontmatter, détection de conflits (hash), corbeille .trash/
-   index.py    index SQLite : notes, liens, recherche FTS5, watcher
-   tasks.py    tâches = fichiers taches/T-XXX-*.md, historique
-   journal.py  notes quotidiennes et modèles
-   inbox.py    résumés mails/Teams → propositions → application
-   reports.py  rapport hebdo (4 sections) et rapport d'avancement de tâche
-   imputations.py  comptes d'imputation, heures par semaine, proposition de répartition
-   semantic.py embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
-   assist.py   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
-   chat.py     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
-   llm.py      client OpenAI-compatible (Vibe), mode JSON, FakeLLM pour les tests
-   prompts.py  prompts système (inbox, rapports, imputations, éditeur, chat)
-      │ REST /api
- Frontend React + Vite + CodeMirror 6 (frontend/)
+      │ notify (surveillance du dossier)
+ tempo-core (crates/tempo-core/src) — bibliothèque Rust
+   api.rs      routes axum /api, SSE du chat, service du frontend, jeton d'accès
+   services.rs assemblage des services autour d'un vault
+   config.rs   paramètres lus dans l'environnement et les fichiers .env
+   vault.rs    lecture/écriture, frontmatter YAML (style PyYAML), conflits (hash), corbeille .trash/
+   index.rs    index SQLite (rusqlite) : notes, liens, recherche FTS5, watcher
+   tasks.rs    tâches = fichiers taches/T-XXX-*.md, historique
+   journal.rs  notes quotidiennes et modèles
+   inbox.rs    résumés mails/Teams → propositions → application
+   reports.rs  rapport hebdo (4 sections) et rapport d'avancement de tâche
+   imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition
+   semantic.rs embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
+   assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
+   chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
+   llm.rs      client OpenAI-compatible (Vibe, ureq), mode JSON, FakeLlm pour les tests
+   de.rs       désérialisation tolérante des réponses du modèle (valeurs par défaut)
+   prompts.rs  prompts système (inbox, rapports, imputations, éditeur, chat)
+      │ HTTP 127.0.0.1 (/api + interface)
+ ┌────────────────────────────┬──────────────────────────────────────┐
+ │ src-tauri : application    │ tempo-server (bin de tempo-core) :   │
+ │ de bureau (fenêtre WebView2│ serveur seul sur :8765, pour le      │
+ │ port 48765 + jeton)        │ développement avec Vite              │
+ └────────────────────────────┴──────────────────────────────────────┘
+      │
+ Frontend React + Vite + CodeMirror 6 (frontend/), embarqué dans l'exécutable
 ```
+
+Application de bureau : au démarrage, l'index est reconstruit, l'API est servie sur
+`127.0.0.1:48765` (stable, car le stockage local de la fenêtre dépend de l'origine ;
+`TEMPO_DESKTOP_PORT` pour le changer, port libre en repli) et la fenêtre ouvre `/?token=…`. Le serveur pose alors un
+cookie HttpOnly / SameSite=Strict et refuse toute requête sans ce cookie : ni un autre
+processus local ni une page web ne peuvent appeler l'API. Le frontend garde ses appels
+relatifs `/api/*` et la diffusion SSE ; les liens externes s'ouvrent dans le navigateur
+du système. Une seule instance tourne à la fois.
+
+Les traitements (disque, SQLite, appels au LLM) sont synchrones et exécutés hors du
+runtime async (`spawn_blocking`) ; la vectorisation tourne dans un thread de fond.
 
 ## Structure du vault
 
@@ -140,7 +162,7 @@ arrondi à 0,5 h et ramené à 8 h. La proposition n'est enregistrée qu'après 
 
 Extraction de tâches d'une note (propositions à cocher, doublons signalés, liens ajoutés en
 fin de note après création) ; résumé, reformulation ou liste d'actions de la sélection ou de
-la note. `assist.py` n'écrit rien : l'éditeur insère le résultat après relecture.
+la note. `assist.rs` n'écrit rien : l'éditeur insère le résultat après relecture.
 
 ## Chat
 
@@ -173,3 +195,4 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher)
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
+- [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI

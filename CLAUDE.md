@@ -1,24 +1,26 @@
 # CLAUDE.md
 
-Tempo : application locale (FastAPI + React) pour notes Markdown, tâches, inbox mails/Teams,
-rapports et imputations, assistée par l'API LLM interne Vibe (compatible OpenAI).
+Tempo : client lourd en Rust (Tauri 2 + React) pour notes Markdown, tâches, inbox mails/Teams,
+rapports et imputations, assisté par l'API LLM interne Vibe (compatible OpenAI).
 Fonctionnalités : [README.md](README.md). Architecture, formats du vault et roadmap :
 [CONCEPTION.md](CONCEPTION.md) — à lire avant toute évolution, et à tenir à jour.
 
 ## Commandes
 
 ```bash
-uv sync                          # dépendances Python (3.12+)
-uv run tempo                     # serveur sur http://127.0.0.1:8765 (sert frontend/dist)
-uv run pytest                    # tests backend (backend/tests)
-uv run pytest backend/tests/test_tasks.py -k nom   # un test
-cd frontend && npm run build     # compile l'interface (tsc -b + vite build)
-cd frontend && npm run typecheck # vérification TypeScript seule
-cd frontend && npm run dev       # Vite sur :5173, proxy /api → :8765 (lancer uv run tempo à côté)
+cargo test                               # tests du cœur (crates/tempo-core)
+cargo test -p tempo-core --test chat nom # un test d'un fichier de tests/
+cargo run -p tempo-core --bin tempo-server   # serveur seul sur http://127.0.0.1:8765 (sert frontend/dist)
+cargo run -p tempo-app                   # application de bureau (build de développement)
+cd src-tauri && cargo tauri build        # installeurs NSIS / MSI dans target/release/bundle/
+cd frontend && npm run build             # compile l'interface (tsc -b + vite build)
+cd frontend && npm run typecheck         # vérification TypeScript seule
+cd frontend && npm run dev               # Vite sur :5173, proxy /api → :8765 (lancer tempo-server à côté)
 ```
 
-Plateforme de dev : Windows ; `python` n'est pas dans le PATH, passer par `uv run python`.
-Pas de linter configuré.
+Plateforme de dev : Windows, toolchain Rust `msvc`. L'application de bureau embarque
+`frontend/dist` à la compilation : recompiler l'interface avant `cargo run -p tempo-app`.
+Pas de linter configuré (`cargo clippy` disponible).
 
 ## Principes à respecter
 
@@ -32,46 +34,62 @@ Pas de linter configuré.
    par requêtes (dates, liens, statuts), le LLM ne fait que rédiger.
 4. **Traçabilité** : les contenus générés citent leurs sources en `[[wiki-links]]`.
 
-## Backend (`backend/tempo/`)
+## Cœur (`crates/tempo-core/src/`)
 
-- `main.py` : `create_app(settings, llm, ...)` — toutes les routes `/api/*`, modèles Pydantic
-  des requêtes, service de `frontend/dist`. Un service par domaine (`tasks.py`, `inbox.py`,
-  `reports.py`, `imputations.py`, `assist.py`, `chat.py`, `semantic.py`…).
-- `vault.py` : lecture/écriture avec frontmatter YAML et détection de conflit par hash
-  (`expected_hash`) — passer par lui pour toute écriture.
-- `index.py` : index SQLite (notes, liens, FTS5) + watcher watchdog.
-- `llm.py` : client OpenAI-compatible, mode JSON (`extract_json`, `ensure_json_hint` : le mot
-  « json » doit figurer dans un message utilisateur, pas seulement système), et `FakeLLM`
-  pour les tests.
-- `prompts.py` : prompts centralisés.
-- `config.py` : `Settings` chargé depuis `.env` (`TEMPO_VAULT`, `VIBE_*`, `TEMPO_MODEL_FAST`,
-  `TEMPO_MODEL_SMART`, `TEMPO_EMBED_*`). Sans `VIBE_*`, les fonctions IA lèvent
-  `LLMNotConfigured` mais le reste fonctionne ; sans `TEMPO_EMBED_MODEL`, la recherche
-  sémantique est désactivée.
+- `api.rs` : `router(services, ApiOptions)` — toutes les routes `/api/*` (axum), corps des
+  requêtes, SSE du chat, service du frontend (dossier ou assets embarqués) et jeton d'accès
+  optionnel. Les traitements sont synchrones et passent par `blocking(...)`
+  (`spawn_blocking`). Un service par domaine (`tasks.rs`, `inbox.rs`, `reports.rs`,
+  `imputations.rs`, `assist.rs`, `chat.rs`, `semantic.rs`…), assemblés dans `services.rs`.
+- `vault.rs` : lecture/écriture avec frontmatter YAML (`Meta` = `serde_json::Map` ordonnée,
+  émission au style PyYAML : dates sans guillemets, listes simples en ligne) et détection de
+  conflit par hash (`expected_hash`) — passer par lui pour toute écriture ; retirer une clé
+  avec `shift_remove` pour garder l'ordre.
+- `index.rs` : index SQLite (notes, liens, FTS5) + watcher `notify`.
+- `llm.rs` : trait `Llm`, client OpenAI-compatible (`ureq`, certificats Windows), mode JSON
+  (`chat_json`, `extract_json`, `ensure_json_hint` : le mot « json » doit figurer dans un
+  message utilisateur, pas seulement système), et `FakeLlm` pour les tests.
+- `de.rs` : désérialiseurs tolérants pour les réponses du modèle (équivalent des validateurs
+  Pydantic : valeur invalide → valeur par défaut).
+- `prompts.rs` : prompts centralisés.
+- `error.rs` : `Error` (Vault 400, NotFound 404, Conflict 409, LlmNotConfigured 503, Llm 502).
+- `config.rs` : `Settings` chargé depuis l'environnement et les `.env` (`TEMPO_VAULT`,
+  `VIBE_*`, `TEMPO_MODEL_FAST`, `TEMPO_MODEL_SMART`, `TEMPO_EMBED_*`). Sans `VIBE_*`, les
+  fonctions IA renvoient `LlmNotConfigured` mais le reste fonctionne ; sans
+  `TEMPO_EMBED_MODEL`, la recherche sémantique est désactivée.
+
+## Application de bureau (`src-tauri/`)
+
+`main.rs` : charge les réglages, démarre les services, sert le routeur sur
+`127.0.0.1:48765` (`TEMPO_DESKTOP_PORT`, port libre en repli) avec un jeton (cookie HttpOnly) et les assets embarqués par
+Tauri, puis ouvre la fenêtre. Instance unique, liens externes ouverts dans le navigateur.
 
 ## Frontend (`frontend/src/`)
 
 React 19 + Vite + CodeMirror 6, sans framework de routage ni de state : routage par hash
-(`router.ts`), appels HTTP et types dans `api.ts`, une vue par espace dans `components/`,
-styles dans un seul `styles.css`. Le chat diffuse en SSE ; ses conversations sont gardées
-dans le navigateur (`chats.ts`).
+(`router.ts`), appels HTTP relatifs (`/api/*`) et types dans `api.ts`, une vue par espace
+dans `components/`, styles dans un seul `styles.css`. Le chat diffuse en SSE ; ses
+conversations sont gardées dans le stockage local (`chats.ts`).
 
 ## Tests
 
-- Les fixtures (`conftest.py`) copient `vault-exemple/` dans un dossier temporaire : ne
-  jamais écrire dans `vault-exemple/` depuis un test. Modifier `vault-exemple/` peut casser
-  des tests existants.
-- Les appels LLM sont simulés avec `FakeLLM([réponse1, réponse2, ...])` ; aucun test ne doit
-  appeler une vraie API.
+- Tests unitaires dans chaque module (`#[cfg(test)]`), tests d'intégration dans
+  `crates/tempo-core/tests/` ; `tests/common/mod.rs` copie `vault-exemple/` dans un dossier
+  temporaire (`ctx()`, `TestApp` pour l'API) : ne jamais écrire dans `vault-exemple/` depuis
+  un test. Modifier `vault-exemple/` peut casser des tests existants.
+- Les appels LLM sont simulés avec `FakeLlm::new([réponse1, réponse2, ...])` (appels
+  consultables avec `.calls()`) ; aucun test ne doit appeler une vraie API (le client HTTP est
+  testé contre un serveur local, `tests/llm.rs`).
 - Ajouter des tests pour chaque nouvelle route ou service.
 
 ## Conventions
 
-- Tout est en **français** : code commenté, docstrings, messages d'erreur, UI, messages de
+- Tout est en **français** : code commenté, doc-comments, messages d'erreur, UI, messages de
   commit (impératif : « Ajoute … », titre court puis corps explicatif).
 - Identifiants métier en français sans accents (`a_faire`, `en_cours`, `terminee`, `haute`,
   dossiers `taches/`, `reunions/`, `comptes/`…). Statuts et priorités : `STATUSES` /
-  `PRIORITIES` dans `tasks.py`.
+  `PRIORITIES` dans `tasks.rs`.
+- Les réponses JSON de l'API gardent les noms de champs attendus par `frontend/src/api.ts`.
 - Une nouvelle fonctionnalité met à jour le README (section Utilisation) et la roadmap /
   l'architecture de CONCEPTION.md.
 - `.env` contient des secrets : ne jamais le lire ni le committer (modèle : `.env.example`).

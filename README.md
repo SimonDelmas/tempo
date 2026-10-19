@@ -7,30 +7,50 @@ Conception détaillée : [CONCEPTION.md](CONCEPTION.md).
 
 ## Prérequis
 
-- [uv](https://docs.astral.sh/uv/) (installe Python 3.12+ automatiquement)
-- Node.js 20+ (uniquement pour compiler l'interface)
+- [Rust](https://rustup.rs/) stable (toolchain `msvc` sous Windows, avec les Build Tools C++)
+- Node.js 20+ (pour compiler l'interface)
+- WebView2 (présent par défaut sous Windows 10/11)
+- Pour construire l'installeur : `cargo install tauri-cli --version "^2" --locked`
 
 ## Installation
 
+Application de bureau (installeur Windows NSIS / MSI) :
+
 ```bash
-uv sync
-cd frontend && npm install && npm run build && cd ..
-cp .env.example .env   # puis renseigner TEMPO_VAULT, VIBE_BASE_URL, VIBE_API_KEY, modèles
+cd frontend && npm install && cd ..
+cd src-tauri && cargo tauri build
 ```
 
-Sans `TEMPO_VAULT`, l'application utilise `vault-exemple/`. Sans `VIBE_*`, tout fonctionne
-sauf les fonctions IA (analyse de l'inbox, rapports).
+Les installeurs sont produits dans `target/release/bundle/nsis/` et `target/release/bundle/msi/`
+(installation par utilisateur, sans droits administrateur pour la version NSIS). Au premier
+build, la CLI Tauri télécharge NSIS et WiX depuis GitHub ; si le réseau bloque NSIS, produire
+seulement le MSI avec `cargo tauri build --bundles msi`. L'exécutable seul est
+`target/release/tempo.exe`.
+
+Configuration : copier `.env.example` en `.env` et renseigner `TEMPO_VAULT`, `VIBE_BASE_URL`,
+`VIBE_API_KEY` et les modèles. Le fichier est cherché, dans l'ordre, dans `TEMPO_ENV_FILE`,
+le dossier courant, la racine du dépôt (développement) puis `%APPDATA%\Tempo\.env`
+(application installée). Les variables d'environnement l'emportent sur les fichiers.
+
+Sans `TEMPO_VAULT`, l'application utilise `vault-exemple/` en développement et
+`Documents\Tempo` une fois installée. Sans `VIBE_*`, tout fonctionne sauf les fonctions IA
+(analyse de l'inbox, rapports, chat). Les certificats du système (magasin Windows) sont
+utilisés pour joindre Vibe ; `VIBE_CA_BUNDLE` permet d'imposer un fichier PEM.
 
 ## Lancement
 
 ```bash
-uv run tempo
+cd frontend && npm run build && cd ..
+cargo run -p tempo-app                   # application de bureau (build de développement)
+cargo run -p tempo-core --bin tempo-server   # ou : serveur seul sur http://127.0.0.1:8765
 ```
 
-Puis ouvrir http://127.0.0.1:8765.
+L'application de bureau sert l'API et l'interface sur `127.0.0.1:48765` (modifiable avec
+`TEMPO_DESKTOP_PORT`), protégé par un jeton propre à chaque lancement ; une seconde ouverture ramène la fenêtre existante.
 
-Développement de l'interface avec rechargement à chaud : `uv run tempo` dans un terminal,
-`cd frontend && npm run dev` dans un autre, puis http://localhost:5173.
+Développement de l'interface avec rechargement à chaud : `cargo run -p tempo-core --bin
+tempo-server` dans un terminal, `cd frontend && npm run dev` dans un autre, puis
+http://localhost:5173.
 
 ## Utilisation
 
@@ -44,7 +64,7 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
   vault (recherche, lecture de notes, liste et historique des tâches), cite ses sources en
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une
   tâche, de mettre à jour une tâche ou d'ajouter une ligne au journal : rien n'est écrit avant
-  « Appliquer ». Les conversations sont conservées dans le navigateur.
+  « Appliquer ». Les conversations sont conservées dans l'application (stockage local du navigateur intégré).
 - **Recherche sémantique** (si `TEMPO_EMBED_MODEL` est renseigné) : bouton ≈ à côté de la
   recherche des notes, suggestions de liens (notes proches pas encore liées) dans le panneau
   de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont
@@ -76,5 +96,5 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
 ## Tests
 
 ```bash
-uv run pytest
+cargo test
 ```

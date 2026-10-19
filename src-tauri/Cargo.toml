@@ -1,0 +1,22 @@
+[package]
+name = "tempo-app"
+version = "0.1.0"
+description = "Tempo : notes, tâches et rapports assistés par LLM (application de bureau)"
+edition = "2024"
+
+[[bin]]
+name = "tempo"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+axum = "0.8"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tempo-core = { path = "../crates/tempo-core" }
+tokio = { version = "1.53.3", features = ["net"] }
+uuid = { version = "1.28.0", features = ["v4"] }
