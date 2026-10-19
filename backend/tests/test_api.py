@@ -21,6 +21,10 @@ def test_api_flow(settings):
         created = client.post("/api/notes", json={"type": "reunion", "title": "Point hebdo",
                                                   "date": "2026-10-19"}).json()
         assert created["path"] == "reunions/2026/2026-10-19-point-hebdo.md"
+        for type, folder in (("ressource", "ressources"), ("formation", "formations")):
+            created = client.post("/api/notes", json={"type": type, "title": "Guide ABAP"}).json()
+            assert created["path"] == f"{folder}/guide-abap.md"
+            assert client.get("/api/notes", params={"path": created["path"]}).json()["meta"]["type"] == type
 
         today = client.post("/api/journal/today", params={"date": "2026-10-17"}).json()
         assert today["path"] == "journal/2026/2026-10-17.md"

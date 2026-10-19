@@ -53,7 +53,7 @@ class ReportService:
         start_ts = dt.datetime.combine(start, dt.time.min).timestamp()
         end_ts = dt.datetime.combine(end, dt.time.max).timestamp()
         others = [n for n in self.index.modified_between(start_ts, end_ts)
-                  if n["type"] in ("sujet", "projet", "note", "personne")]
+                  if n["type"] in ("sujet", "projet", "note", "personne", "ressource", "formation")]
         block("Autres notes modifiées cette semaine", others)
 
         events = self.tasks.events(s, e)

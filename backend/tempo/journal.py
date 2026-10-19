@@ -16,7 +16,8 @@ DEFAULT_TEMPLATES = {
 
 # type de note -> dossier ; les réunions sont rangées par année
 NOTE_FOLDERS = {"reunion": "reunions/{year}", "sujet": "sujets", "projet": "projets",
-                "personne": "personnes", "note": "sujets"}
+                "personne": "personnes", "ressource": "ressources",
+                "formation": "formations", "note": "sujets"}
 
 
 class JournalService:

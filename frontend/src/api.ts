@@ -167,6 +167,8 @@ export const TYPE_LABELS: Record<string, string> = {
   projet: "Projet",
   sujet: "Sujet",
   personne: "Personne",
+  ressource: "Ressource",
+  formation: "Formation",
   rapport: "Rapport",
   compte: "Compte",
   imputation: "Imputations",

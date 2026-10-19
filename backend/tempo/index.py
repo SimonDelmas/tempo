@@ -26,6 +26,8 @@ FOLDER_TYPES = {
     "projets": "projet",
     "sujets": "sujet",
     "personnes": "personne",
+    "ressources": "ressource",
+    "formations": "formation",
     "rapports": "rapport",
     "comptes": "compte",
     "imputations": "imputation",

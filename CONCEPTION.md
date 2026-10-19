@@ -41,7 +41,7 @@ journal/AAAA/        AAAA-MM-JJ.md (sections Notes / Échanges / Fait aujourd'hu
 reunions/AAAA/       AAAA-MM-JJ-sujet.md
 echanges/AAAA/MM/    échanges traités (résumé + texte original)
 taches/              T-XXX-titre.md
-projets/  sujets/  personnes/
+projets/  sujets/  personnes/  ressources/  formations/
 rapports/hebdo/      AAAA-Sxx.md
 rapports/taches/     T-XXX-AAAA-MM-JJ.md
 comptes/             <alias>.md (comptes d'imputation)

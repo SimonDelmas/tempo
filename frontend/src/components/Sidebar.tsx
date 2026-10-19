@@ -130,6 +130,8 @@ export default function Sidebar({ files, current, view, inboxCount, imputationMi
             <option value="sujet">Sujet</option>
             <option value="projet">Projet</option>
             <option value="personne">Personne</option>
+            <option value="ressource">Ressource</option>
+            <option value="formation">Formation</option>
           </select>
           <input autoFocus placeholder="Titre" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") create(); if (e.key === "Escape") setCreating(false); }} />
