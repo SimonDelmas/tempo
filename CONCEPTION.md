@@ -59,6 +59,12 @@ processus local ni une page web ne peuvent appeler l'API. Le frontend garde ses 
 relatifs `/api/*` et la diffusion SSE ; les liens externes s'ouvrent dans le navigateur
 du système. Une seule instance tourne à la fois.
 
+Frontend : chaque vue a son adresse (`#/<espace>/<note>?…`, `router.ts`). Le routeur tient
+son propre historique des vues (pile + position) pour les boutons précédent / suivant, qui
+savent ainsi s'ils sont actifs ; ils respectent la garde de sortie des saisies non
+enregistrées. Les raccourcis viennent de `/api/config` (`TEMPO_SHORTCUT_BACK`,
+`TEMPO_SHORTCUT_FORWARD`, Alt+← / Alt+→ par défaut) et sont capturés avant l'éditeur.
+
 Les traitements (disque, SQLite, appels au LLM) sont synchrones et exécutés hors du
 runtime async (`spawn_blocking`) ; la vectorisation tourne dans un thread de fond.
 
@@ -212,4 +218,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
+- [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

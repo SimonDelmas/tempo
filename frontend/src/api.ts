@@ -27,6 +27,8 @@ export type Config = {
   statuses: string[];
   priorities: string[];
   semantic_enabled: boolean;
+  /** raccourcis de navigation entre les vues (« Alt+ArrowLeft ») */
+  shortcuts: { back: string; forward: string };
 };
 
 export type InboxItem = { path: string; content: string; preview: string };

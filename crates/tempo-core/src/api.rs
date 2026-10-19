@@ -318,6 +318,7 @@ async fn get_config(State(s): State<AppState>) -> ApiResult {
         "vault": s.vault.root.to_string_lossy(), "llm_enabled": s.settings.llm_enabled(),
         "model_fast": s.settings.model_fast, "model_smart": s.settings.model_smart,
         "statuses": STATUSES, "priorities": PRIORITIES, "semantic_enabled": s.semantic.enabled(),
+        "shortcuts": {"back": s.settings.shortcut_back, "forward": s.settings.shortcut_forward},
     })))
 }
 

@@ -17,6 +17,10 @@ pub fn user_config_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|d| d.join("Tempo"))
 }
 
+/// Raccourcis par défaut pour revenir à la vue précédente / aller à la vue suivante.
+pub const DEFAULT_SHORTCUT_BACK: &str = "Alt+ArrowLeft";
+pub const DEFAULT_SHORTCUT_FORWARD: &str = "Alt+ArrowRight";
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     pub vault: PathBuf,
@@ -31,6 +35,9 @@ pub struct Settings {
     pub embed_api_key: Option<String>,
     pub host: String,
     pub port: u16,
+    /// raccourcis clavier de navigation (vue précédente / suivante), ex. `Alt+ArrowLeft`
+    pub shortcut_back: String,
+    pub shortcut_forward: String,
     /// surveillance du dossier et vectorisation en arrière-plan (désactivées dans les tests)
     pub watch: bool,
 }
@@ -50,6 +57,8 @@ impl Settings {
             embed_api_key: None,
             host: "127.0.0.1".into(),
             port: 8765,
+            shortcut_back: DEFAULT_SHORTCUT_BACK.into(),
+            shortcut_forward: DEFAULT_SHORTCUT_FORWARD.into(),
             watch: false,
         }
     }
@@ -160,6 +169,8 @@ pub fn load_settings() -> Settings {
         llm_api_key: api_key,
         host: var("TEMPO_HOST").unwrap_or_else(|| "127.0.0.1".into()),
         port: var("TEMPO_PORT").and_then(|p| p.parse().ok()).unwrap_or(8765),
+        shortcut_back: var("TEMPO_SHORTCUT_BACK").unwrap_or_else(|| DEFAULT_SHORTCUT_BACK.into()),
+        shortcut_forward: var("TEMPO_SHORTCUT_FORWARD").unwrap_or_else(|| DEFAULT_SHORTCUT_FORWARD.into()),
         watch: true,
     }
 }

@@ -68,6 +68,8 @@ async fn api_flow() {
     let config = app.get("/api/config").await.json();
     assert_eq!(config["llm_enabled"], false);
     assert_eq!(config["statuses"][0], "a_faire");
+    assert_eq!(config["shortcuts"]["back"], "Alt+ArrowLeft");
+    assert_eq!(config["shortcuts"]["forward"], "Alt+ArrowRight");
 
     let invalid = app.post("/api/tasks", Some(json!({"project": "sap"}))).await;
     assert_eq!(invalid.status, StatusCode::UNPROCESSABLE_ENTITY);

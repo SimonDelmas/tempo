@@ -59,7 +59,10 @@ http://localhost:5173.
   adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
   arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
-  Imputations) ; chaque espace retrouve la dernière page consultée.
+  Imputations) ; chaque espace retrouve la dernière page consultée. Les flèches en haut de
+  la barre (Alt+← / Alt+→, ou les boutons latéraux de la souris) reviennent à la vue
+  précédente et passent à la suivante ; raccourcis modifiables avec `TEMPO_SHORTCUT_BACK` et
+  `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`).
 - **Chat** : questions en langage naturel sur les notes et les tâches. L'agent consulte le
   vault (recherche, lecture de notes, liste et historique des tâches), cite ses sources en
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une

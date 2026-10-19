@@ -1,8 +1,9 @@
-import { Space, SPACES } from "../router";
+import { goBack, goForward, shortcutLabel, Space, SPACES, useNavHistory } from "../router";
 
 type Props = {
   current: Space;
   badges: Partial<Record<Space, number>>;
+  shortcuts: { back: string; forward: string };
   onSelect: (space: Space) => void;
 };
 
@@ -15,10 +16,21 @@ const ICONS: Record<Space, string> = {
   chat: "M4 5h16v11H9l-5 4z M8 9h8 M8 12h5",
 };
 
-export default function SpaceBar({ current, badges, onSelect }: Props) {
+export default function SpaceBar({ current, badges, shortcuts, onSelect }: Props) {
+  const { canBack, canForward } = useNavHistory();
   return (
     <nav className="space-bar">
       <div className="brand-mark" title="Tempo">T</div>
+      <div className="history-nav">
+        <button onClick={goBack} disabled={!canBack} title={`Vue précédente (${shortcutLabel(shortcuts.back)})`}
+          aria-label="Vue précédente">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+        </button>
+        <button onClick={goForward} disabled={!canForward} title={`Vue suivante (${shortcutLabel(shortcuts.forward)})`}
+          aria-label="Vue suivante">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+        </button>
+      </div>
       {SPACES.map((s, i) => (
         <button key={s.id} className={`space ${current === s.id ? "active" : ""}`}
           onClick={() => onSelect(s.id)} title={`${s.label} (Alt+${i + 1})`}>

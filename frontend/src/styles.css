@@ -79,6 +79,14 @@ main { overflow: auto; min-width: 0; }
   align-self: center; width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #fff;
   display: grid; place-items: center; font-weight: 700; margin-bottom: 10px;
 }
+.history-nav { display: flex; justify-content: center; gap: 2px; margin-bottom: 8px; }
+.history-nav button {
+  display: grid; place-items: center; border: none; background: transparent; padding: 3px; border-radius: 6px;
+  color: var(--muted);
+}
+.history-nav button:hover:not(:disabled) { color: var(--text); background: var(--accent-soft); }
+.history-nav button:disabled { opacity: 0.35; cursor: default; }
+.history-nav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .space {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px;
   border: none; background: transparent; padding: 7px 2px; border-radius: 8px; color: var(--muted); font-size: 11px;
@@ -271,6 +279,7 @@ input.full { width: 100%; }
   main { flex: 1; }
   .space-bar { flex-direction: row; justify-content: space-around; padding: 4px; border-right: none; border-bottom: 1px solid var(--border); }
   .brand-mark { display: none; }
+  .history-nav { margin-bottom: 0; align-items: center; }
   .sidebar { max-height: 30vh; }
   .right-panel { display: none; }
   .inbox-layout, .grid-form { grid-template-columns: 1fr; }

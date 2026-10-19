@@ -13,7 +13,7 @@ import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
 import { ChatSidebar, ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
 import TasksView from "./components/TasksView";
-import { href, navigate, noteHref, Space, SPACES, useRoute } from "./router";
+import { goBack, goForward, href, matchShortcut, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
 type Toast = { id: number; message: string; error: boolean };
 
@@ -103,6 +103,31 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selectSpace]);
 
+  // vue précédente / suivante : raccourcis configurables (capturés avant l'éditeur, dont
+  // Alt+flèche déplace sinon le curseur) et boutons latéraux de la souris
+  const shortcuts = config?.shortcuts;
+  useEffect(() => {
+    if (!shortcuts) return;
+    const onKey = (e: KeyboardEvent) => {
+      const action = matchShortcut(e, shortcuts.back) ? goBack : matchShortcut(e, shortcuts.forward) ? goForward : null;
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      action();
+    };
+    const onMouse = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      (e.button === 3 ? goBack : goForward)();
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("mouseup", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("mouseup", onMouse);
+    };
+  }, [shortcuts]);
+
   const open = useCallback((p: string | null) => {
     navigate(p ? noteHref(p) : href(space));
     window.setTimeout(poll, 300);
@@ -162,7 +187,7 @@ export default function App() {
 
   return (
     <div className={`app ${layout}`}>
-      <SpaceBar current={space} onSelect={selectSpace}
+      <SpaceBar current={space} onSelect={selectSpace} shortcuts={config.shortcuts}
         badges={{ inbox: inboxCount, imputations: imputationMissing }} />
       {sidebar}
 
