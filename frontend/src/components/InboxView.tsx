@@ -76,19 +76,26 @@ export default function InboxView({ config, revision, onOpen, notify }: Props) {
       result.updated_tasks.length && `${result.updated_tasks.length} mise(s) à jour`,
     ].filter(Boolean);
     notify(`Échange enregistré${parts.length ? " · " + parts.join(" · ") : ""}`);
-    setProposal(null);
-    setSelected(null);
-    setItems(await api.inbox());
-    onOpen(result.echange);
+    // Enchaîne sur l'entrant suivant ; l'échange n'est ouvert qu'une fois l'inbox vidée.
+    if (!(await selectNext(selected))) onOpen(result.echange);
   });
 
   const discard = () => run(async () => {
     if (!selected || !window.confirm("Ignorer ce résumé ? (déplacé dans .trash)")) return;
     await api.inboxDiscard(selected);
-    setSelected(null);
-    setProposal(null);
-    setItems(await api.inbox());
+    await selectNext(selected);
   });
+
+  /** Recharge l'inbox et sélectionne l'entrant qui suivait `done` (ou le dernier) ; faux si l'inbox est vide. */
+  const selectNext = async (done: string) => {
+    const index = items.findIndex((i) => i.path === done);
+    const list = await api.inbox();
+    setItems(list);
+    setProposal(null);
+    const next = list.length ? list[Math.min(Math.max(index, 0), list.length - 1)] : undefined;
+    setSelected(next?.path ?? null);
+    return Boolean(next);
+  };
 
   const setEchange = (patch: Partial<Proposal["echange"]>) =>
     proposal && setProposal({ ...proposal, echange: { ...proposal.echange, ...patch } });

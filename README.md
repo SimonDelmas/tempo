@@ -89,6 +89,7 @@ http://localhost:5173.
   dans la liste des notes de `projets/` ; le bouton « + » crée la note d'un nouveau projet.
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers
   dans `00-inbox/`, « Analyser avec l'IA », ajuster la proposition, « Appliquer ».
+  Appliquer ou ignorer un entrant passe au suivant ; l'échange est ouvert une fois l'inbox vidée.
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
