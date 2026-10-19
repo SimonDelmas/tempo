@@ -181,6 +181,9 @@ main { overflow: auto; min-width: 0; }
 .task-create { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .task-create > input:first-child { flex: 1; min-width: 220px; }
 .project-select { display: inline-flex; gap: 4px; align-items: center; }
+.projects-select { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.projects-select .tag { display: inline-flex; align-items: center; gap: 2px; }
+.projects-select .tag button { padding: 0 2px; line-height: 1; color: inherit; }
 .kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(200px, 1fr); gap: 12px; align-items: start; overflow-x: auto; }
 .column { background: var(--sidebar); border-radius: 8px; padding: 10px; min-height: 200px; }
 .column h3 { font-size: 13px; }

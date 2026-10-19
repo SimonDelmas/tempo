@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, Draft, DraftProposal, drafts as draftsApi, NOTE_KINDS, NoteSummary, STATUS_LABELS,
   TYPE_LABELS } from "../api";
 import MarkdownEditor from "./MarkdownEditor";
+import ProjectSelect, { useProjects } from "./ProjectSelect";
 
 type Props = {
   config: Config;
@@ -33,6 +34,7 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
   const [busy, setBusy] = useState(false);
   const [close, setClose] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [projects, addProject] = useProjects(0);
   const pending = useRef(new Map<string, Pending>());
   const timer = useRef<number | undefined>(undefined);
 
@@ -234,7 +236,8 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
                 <div key={i} className={`proposal-card ${t.accepted ? "" : "rejected"}`}>
                   <input type="checkbox" checked={t.accepted} onChange={(e) => setTask(i, { accepted: e.target.checked })} />
                   <input className="grow" value={t.title} onChange={(e) => setTask(i, { title: e.target.value })} />
-                  <input placeholder="projet" value={t.project ?? ""} onChange={(e) => setTask(i, { project: e.target.value || null })} />
+                  <ProjectSelect projects={projects} value={t.project ?? ""} onChange={(id) => setTask(i, { project: id || null })}
+                    onCreated={addProject} notify={notify} />
                   <select value={t.status} onChange={(e) => setTask(i, { status: e.target.value })}>
                     {config.statuses.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                   </select>

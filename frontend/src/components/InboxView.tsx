@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Config, InboxItem, Proposal, STATUS_LABELS, Task } from "../api";
+import ProjectSelect, { ProjectsSelect, useProjects } from "./ProjectSelect";
 
 type Props = {
   config: Config;
@@ -28,6 +29,7 @@ export default function InboxView({ config, revision, onOpen, notify }: Props) {
   const [text, setText] = useState("");
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [busy, setBusy] = useState(false);
+  const [projects, addProject] = useProjects(revision);
 
   useEffect(() => {
     api.inbox().then((list) => {
@@ -161,7 +163,8 @@ export default function InboxView({ config, revision, onOpen, notify }: Props) {
                 <label>Date<input type="date" value={proposal.echange.date} onChange={(e) => setEchange({ date: e.target.value })} /></label>
                 <label className="wide">Sujet<input value={proposal.echange.subject} onChange={(e) => setEchange({ subject: e.target.value })} /></label>
                 <label className="wide">Participants<input value={csv(proposal.echange.participants)} onChange={(e) => setEchange({ participants: fromCsv(e.target.value) })} /></label>
-                <label>Projets<input value={csv(proposal.echange.projects)} onChange={(e) => setEchange({ projects: fromCsv(e.target.value) })} /></label>
+                <label>Projets<ProjectsSelect projects={projects} value={proposal.echange.projects}
+                  onChange={(ids) => setEchange({ projects: ids })} onCreated={addProject} notify={notify} /></label>
                 <label>Fil<input value={proposal.echange.thread} onChange={(e) => setEchange({ thread: e.target.value })} /></label>
                 <label className="wide">Résumé<textarea rows={5} value={proposal.echange.summary} onChange={(e) => setEchange({ summary: e.target.value })} /></label>
               </div>
@@ -172,7 +175,8 @@ export default function InboxView({ config, revision, onOpen, notify }: Props) {
                 <div key={i} className={`proposal-card ${t.accepted ? "" : "rejected"}`}>
                   <input type="checkbox" checked={t.accepted} onChange={(e) => setNewTask(i, { accepted: e.target.checked })} />
                   <input className="grow" value={t.title} onChange={(e) => setNewTask(i, { title: e.target.value })} />
-                  <input placeholder="projet" value={t.project ?? ""} onChange={(e) => setNewTask(i, { project: e.target.value || null })} />
+                  <ProjectSelect projects={projects} value={t.project ?? ""} onChange={(id) => setNewTask(i, { project: id || null })}
+                    onCreated={addProject} notify={notify} />
                   <select value={t.status} onChange={(e) => setNewTask(i, { status: e.target.value })}>
                     {config.statuses.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                   </select>

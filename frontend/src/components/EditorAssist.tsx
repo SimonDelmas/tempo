@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api, Config, TaskDraft, TextAction } from "../api";
+import ProjectSelect, { useProjects } from "./ProjectSelect";
 
 /** Fenêtres des actions IA de l'éditeur : rien n'est écrit sans validation. */
 
@@ -19,6 +20,7 @@ export function ExtractTasksDialog({ drafts, config, origin, onCreated, onClose,
 }) {
   const [rows, setRows] = useState<DraftRow[]>(() => drafts.map((d) => ({ ...d, selected: !d.duplicate_of })));
   const [busy, setBusy] = useState(false);
+  const [projects, addProject] = useProjects(0);
   const set = (i: number, patch: Partial<DraftRow>) =>
     setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
@@ -53,7 +55,8 @@ export function ExtractTasksDialog({ drafts, config, origin, onCreated, onClose,
           <div key={i} className={`proposal-card ${r.selected ? "" : "rejected"}`}>
             <input type="checkbox" checked={r.selected} onChange={(e) => set(i, { selected: e.target.checked })} />
             <input className="grow" value={r.title} onChange={(e) => set(i, { title: e.target.value })} />
-            <input placeholder="Projet" value={r.project ?? ""} onChange={(e) => set(i, { project: e.target.value })} />
+            <ProjectSelect projects={projects} value={r.project ?? ""} onChange={(id) => set(i, { project: id })}
+              onCreated={addProject} notify={notify} />
             <select value={r.priority} onChange={(e) => set(i, { priority: e.target.value })}>
               {config.priorities.map((p) => <option key={p}>{p}</option>)}
             </select>

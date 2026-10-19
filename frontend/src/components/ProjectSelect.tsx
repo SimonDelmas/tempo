@@ -15,6 +15,9 @@ export function projectTitle(projects: Project[], id: string) {
   return projects.find((p) => p.id === id)?.title ?? id;
 }
 
+/** valeur de l'option « Nouveau projet… » de la liste */
+const NEW = "__nouveau_projet__";
+
 type Props = {
   projects: Project[];
   /** identifiant du projet choisi, "" pour aucun */
@@ -24,13 +27,24 @@ type Props = {
   onCreated: (project: Project) => void;
   notify: (message: string, error?: boolean) => void;
   emptyLabel?: string;
+  /** identifiants à ne pas proposer (projets déjà choisis d'une liste) */
+  exclude?: string[];
 };
 
-/** Liste déroulante des projets avec un bouton pour en créer un nouveau. */
-export default function ProjectSelect({ projects, value, onChange, onCreated, notify, emptyLabel = "Aucun projet" }: Props) {
+/**
+ * Liste déroulante des projets du vault ; sa dernière option « Nouveau projet… » ouvre la
+ * saisie d'un nom et crée la note `projets/<nom>.md`.
+ */
+export default function ProjectSelect({ projects, value, onChange, onCreated, notify,
+  emptyLabel = "Aucun projet", exclude = [] }: Props) {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const unknown = value && !projects.some((p) => p.id === value);
+
+  const cancel = () => {
+    setCreating(false);
+    setTitle("");
+  };
 
   const create = async () => {
     if (!title.trim()) return;
@@ -39,8 +53,7 @@ export default function ProjectSelect({ projects, value, onChange, onCreated, no
       notify(`Projet « ${project.title} » créé`);
       onCreated(project);
       onChange(project.id);
-      setCreating(false);
-      setTitle("");
+      cancel();
     } catch (e) {
       notify((e as Error).message, true);
     }
@@ -49,24 +62,46 @@ export default function ProjectSelect({ projects, value, onChange, onCreated, no
   if (creating) {
     return (
       <span className="project-select">
-        <input autoFocus placeholder="Nom du projet" value={title} onChange={(e) => setTitle(e.target.value)}
+        <input autoFocus placeholder="Nom du nouveau projet" value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") create();
-            if (e.key === "Escape") setCreating(false);
+            if (e.key === "Enter") { e.preventDefault(); create(); }
+            if (e.key === "Escape") { e.stopPropagation(); cancel(); }
           }} />
-        <button className="primary" onClick={create}>Créer</button>
-        <button className="ghost" onClick={() => setCreating(false)}>Annuler</button>
+        <button className="primary" disabled={!title.trim()} onClick={create}>Créer</button>
+        <button className="ghost" onClick={cancel}>Annuler</button>
       </span>
     );
   }
   return (
     <span className="project-select">
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <select value={value} onChange={(e) => {
+        if (e.target.value === NEW) setCreating(true);
+        else onChange(e.target.value);
+      }}>
         <option value="">{emptyLabel}</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+        {projects.filter((p) => p.id === value || !exclude.includes(p.id))
+          .map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
         {unknown && <option value={value}>{value} (sans note)</option>}
+        <option value={NEW}>+ Nouveau projet…</option>
       </select>
-      <button className="mini" title="Nouveau projet" onClick={() => setCreating(true)}>+</button>
+    </span>
+  );
+}
+
+/** Plusieurs projets : étiquettes retirables et une liste déroulante pour en ajouter. */
+export function ProjectsSelect({ projects, value, onChange, onCreated, notify }: Omit<Props, "value" | "onChange"
+  | "emptyLabel" | "exclude"> & { value: string[]; onChange: (ids: string[]) => void }) {
+  return (
+    <span className="projects-select">
+      {value.map((id) => (
+        <span key={id} className="tag">
+          {projectTitle(projects, id)}
+          <button className="ghost mini" title="Retirer" onClick={() => onChange(value.filter((x) => x !== id))}>×</button>
+        </span>
+      ))}
+      <ProjectSelect projects={projects} value="" emptyLabel="Ajouter un projet…" exclude={value}
+        onChange={(id) => { if (id && !value.includes(id)) onChange([...value, id]); }}
+        onCreated={onCreated} notify={notify} />
     </span>
   );
 }

@@ -96,8 +96,10 @@ http://localhost:5173.
     semaine quittée.
 
   Fiche de tâche avec statut / priorité / échéance / projet, historique daté et bouton
-  « Rapport d'avancement ». Le projet se choisit dans la liste des notes de `projets/` ; le
-  bouton « + » crée la note d'un nouveau projet.
+  « Rapport d'avancement ». Partout où un projet est demandé (fiche de tâche, création de
+  tâche, propositions de l'inbox, du Draft et de l'extraction de tâches), il se choisit dans la
+  liste des notes de `projets/` ; l'option « + Nouveau projet… » de cette liste crée la note
+  d'un nouveau projet et le sélectionne.
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers
   dans `00-inbox/`, « Analyser avec l'IA », ajuster la proposition, « Appliquer ».
   Appliquer ou ignorer un entrant passe au suivant ; l'échange est ouvert une fois l'inbox vidée.

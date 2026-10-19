@@ -279,6 +279,8 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
+- [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,
+  y compris les propositions de l'inbox, du Draft et de l'extraction de tâches
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
 - [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
 - [x] Tâches en backlog (ordre par glisser-déposer, projets comme features) et board par itération hebdomadaire avec report automatique
