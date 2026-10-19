@@ -3,13 +3,27 @@ import { api, Config, NoteSummary } from "./api";
 import EditorPane from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
+import NotesHome from "./components/NotesHome";
+import NotesSidebar from "./components/NotesSidebar";
 import QuickOpen from "./components/QuickOpen";
 import ReportsView from "./components/ReportsView";
 import RightPanel from "./components/RightPanel";
-import Sidebar, { View } from "./components/Sidebar";
+import SpaceBar from "./components/SpaceBar";
+import { ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
 import TasksView from "./components/TasksView";
+import { href, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
 type Toast = { id: number; message: string; error: boolean };
+
+const LAST_ROUTES_KEY = "tempo.lastRoutes";
+
+function loadLastRoutes(): Partial<Record<Space, string>> {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_ROUTES_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
 
 export default function App() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -17,11 +31,12 @@ export default function App() {
   const [revision, setRevision] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
   const [imputationMissing, setImputationMissing] = useState(0);
-  const [view, setView] = useState<View>("tasks");
-  const [path, setPath] = useState<string | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const lastRevision = useRef(-1);
+  const lastRoutes = useRef(loadLastRoutes());
+  const route = useRoute();
+  const { space, path, params } = route;
 
   const notify = useCallback((message: string, error = false) => {
     const id = Date.now() + Math.random();
@@ -52,8 +67,29 @@ export default function App() {
     return () => window.clearInterval(handle);
   }, [poll, notify]);
 
+  // chaque espace retrouve la dernière page consultée
+  useEffect(() => {
+    lastRoutes.current[space] = window.location.hash;
+    try {
+      localStorage.setItem(LAST_ROUTES_KEY, JSON.stringify(lastRoutes.current));
+    } catch {
+      /* stockage indisponible */
+    }
+  }, [space, path, params]);
+
+  const selectSpace = useCallback((target: Space) => {
+    // un second clic sur l'espace courant ramène à sa page d'accueil
+    navigate(target === space ? href(target) : lastRoutes.current[target] || href(target));
+  }, [space]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Alt+1…5 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
+      const index = Number(e.key) - 1;
+      if (e.altKey && !e.ctrlKey && index >= 0 && index < SPACES.length) {
+        e.preventDefault();
+        selectSpace(SPACES[index].id);
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
         setQuickOpen(true);
@@ -61,34 +97,50 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [selectSpace]);
 
   const open = useCallback((p: string | null) => {
-    setPath(p);
-    setView(p ? "editor" : "tasks");
+    navigate(p ? noteHref(p) : href(space));
     window.setTimeout(poll, 300);
-  }, [poll]);
+  }, [poll, space]);
 
   if (!config) return <div className="loading">Chargement…</div>;
 
+  const sidebar = {
+    notes: <NotesSidebar files={files} current={path} onOpen={open} notify={notify} />,
+    taches: <TasksSidebar revision={revision} current={path} project={params.projet ?? null} onOpen={open}
+      onBoard={(projet) => navigate(href("taches", null, { projet }))} />,
+    rapports: <ReportsSidebar files={files} current={path} onOpen={open} onHome={() => navigate(href("rapports"))} />,
+    imputations: <ImputationsSidebar files={files} revision={revision} current={path} week={params.date ?? null}
+      onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
+    inbox: null,
+  }[space];
+
+  const home = {
+    notes: <NotesHome files={files} onOpen={open} />,
+    taches: <TasksView config={config} revision={revision} project={params.projet ?? ""}
+      onProject={(projet) => navigate(href("taches", null, { projet }))} onOpen={open} notify={notify} />,
+    rapports: <ReportsView config={config} onOpen={open} notify={notify} />,
+    imputations: <ImputationsView config={config} revision={revision} date={params.date ?? null}
+      onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,
+    inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
+  }[space];
+
+  const layout = [sidebar ? "with-sidebar" : "", path ? "with-right" : ""].join(" ");
+
   return (
-    <div className={`app ${view === "editor" && path ? "with-right" : ""}`}>
-      <Sidebar files={files} current={view === "editor" ? path : null} view={view} inboxCount={inboxCount}
-        imputationMissing={imputationMissing}
-        setView={setView} onOpen={open} notify={notify} />
+    <div className={`app ${layout}`}>
+      <SpaceBar current={space} onSelect={selectSpace}
+        badges={{ inbox: inboxCount, imputations: imputationMissing }} />
+      {sidebar}
 
       <main>
-        {view === "editor" && path && (
-          <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify} />
-        )}
-        {view === "editor" && !path && <div className="empty">Aucune note ouverte (Ctrl+P).</div>}
-        {view === "tasks" && <TasksView config={config} revision={revision} onOpen={open} notify={notify} />}
-        {view === "inbox" && <InboxView config={config} revision={revision} onOpen={open} notify={notify} />}
-        {view === "reports" && <ReportsView config={config} files={files} onOpen={open} notify={notify} />}
-        {view === "imputations" && <ImputationsView config={config} revision={revision} onOpen={open} notify={notify} />}
+        {path
+          ? <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify} />
+          : home}
       </main>
 
-      {view === "editor" && path && <RightPanel path={path} revision={revision} onOpen={open} />}
+      {path && <RightPanel path={path} revision={revision} onOpen={open} />}
 
       {quickOpen && <QuickOpen files={files} onOpen={open} onClose={() => setQuickOpen(false)} />}
 

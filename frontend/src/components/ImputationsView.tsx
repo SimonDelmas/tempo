@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Account, api, Config, Hours, ImputationWeek, Project, today } from "../api";
+import { setLeaveGuard } from "../router";
 
 type Props = {
   config: Config;
   revision: number;
+  /** jour de la semaine affichée, porté par l'adresse (#/imputations?date=…) ; null : cette semaine */
+  date: string | null;
+  onDate: (date: string | null) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
@@ -22,8 +26,8 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 const weekHours = (hours: Hours, alias: string) => sum(Object.values(hours).map((d) => d[alias] ?? 0));
 
-export default function ImputationsView({ config, revision, onOpen, notify }: Props) {
-  const [date, setDate] = useState(today());
+export default function ImputationsView({ config, revision, date: dateParam, onDate, onOpen, notify }: Props) {
+  const date = dateParam ?? today();
   const [week, setWeek] = useState<ImputationWeek | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -67,11 +71,13 @@ export default function ImputationsView({ config, revision, onOpen, notify }: Pr
     setCell(day, alias, String((draft[day]?.[alias] ?? 0) + missing));
   };
 
-  const changeWeek = (offset: number) => {
-    if (dirty && !window.confirm("Abandonner les modifications non enregistrées ?")) return;
-    setDirty(false);
-    setDate(offset ? shiftDate(date, offset) : today());
-  };
+  // saisie non enregistrée : confirmation avant de quitter la semaine (navigation interne)
+  useEffect(() => {
+    setLeaveGuard(dirty ? () => window.confirm("Abandonner les modifications non enregistrées ?") : null);
+    return () => setLeaveGuard(null);
+  }, [dirty]);
+
+  const changeWeek = (offset: number) => onDate(offset ? shiftDate(date, offset) : null);
 
   const save = async () => {
     setBusy(true);

@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, NoteSummary, SearchResult } from "../api";
-
-export type View = "editor" | "tasks" | "inbox" | "reports" | "imputations";
+import { isSpaceFolder } from "../router";
 
 type Props = {
   files: NoteSummary[];
   current: string | null;
-  view: View;
-  inboxCount: number;
-  imputationMissing: number;
-  setView: (view: View) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
@@ -71,16 +66,17 @@ function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpe
   );
 }
 
-const DEFAULT_COLLAPSED = ["_templates", "rapports", "echanges", "00-inbox", "imputations"];
+const DEFAULT_COLLAPSED = ["_templates", "echanges", "00-inbox"];
 
-export default function Sidebar({ files, current, view, inboxCount, imputationMissing, setView, onOpen, notify }: Props) {
+export default function NotesSidebar({ files, current, onOpen, notify }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [collapsed, setCollapsed] = useState(() => new Set(DEFAULT_COLLAPSED));
   const [creating, setCreating] = useState(false);
   const [newType, setNewType] = useState("reunion");
   const [newTitle, setNewTitle] = useState("");
-  const tree = useMemo(() => buildTree(files), [files]);
+  // tâches, rapports et imputations ont leur propre espace
+  const tree = useMemo(() => buildTree(files.filter((f) => !isSpaceFolder(f.path.split("/")[0]))), [files]);
 
   useEffect(() => {
     if (!query.trim()) return setResults([]);
@@ -106,22 +102,12 @@ export default function Sidebar({ files, current, view, inboxCount, imputationMi
     }
   };
 
-  const nav = (target: View, label: string, extra?: string) => (
-    <button className={`nav ${view === target ? "active" : ""}`} onClick={() => setView(target)}>
-      {label}{extra && <span className="pill">{extra}</span>}
-    </button>
-  );
-
   return (
     <aside className="sidebar">
-      <div className="brand">Tempo</div>
+      <div className="sidebar-title">Notes</div>
       <button className="nav" onClick={() => api.journalToday().then((r) => onOpen(r.path))}>
         Journal du jour
       </button>
-      {nav("inbox", "Inbox", inboxCount ? String(inboxCount) : undefined)}
-      {nav("tasks", "Tâches")}
-      {nav("reports", "Rapports")}
-      {nav("imputations", "Imputations", imputationMissing ? String(imputationMissing) : undefined)}
 
       {creating ? (
         <div className="new-note">

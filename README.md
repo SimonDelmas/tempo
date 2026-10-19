@@ -34,6 +34,12 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
 
 ## Utilisation
 
+- **Navigation** : la barre de gauche donne accès aux espaces Notes, Tâches, Rapports,
+  Imputations et Inbox (Alt+1…5), chacun avec sa propre barre latérale. Chaque page a son
+  adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
+  arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
+  dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
+  Imputations) ; chaque espace retrouve la dernière page consultée.
 - **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,
   `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour

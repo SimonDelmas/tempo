@@ -4,13 +4,15 @@ import { api, Config, STATUS_LABELS, Task, today } from "../api";
 type Props = {
   config: Config;
   revision: number;
+  /** filtre projet, porté par l'adresse (#/taches?projet=…) */
+  project: string;
+  onProject: (project: string | null) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
 
-export default function TasksView({ config, revision, onOpen, notify }: Props) {
+export default function TasksView({ config, revision, project, onProject, onOpen, notify }: Props) {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [project, setProject] = useState("");
   const [showDone, setShowDone] = useState(true);
   const [draft, setDraft] = useState({ title: "", project: "", priority: "normale", due: "" });
   const [dragged, setDragged] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export default function TasksView({ config, revision, onOpen, notify }: Props) {
     <div className="page tasks-view">
       <header className="page-header">
         <h2>Tâches</h2>
-        <select value={project} onChange={(e) => setProject(e.target.value)}>
+        <select value={project} onChange={(e) => onProject(e.target.value || null)}>
           <option value="">Tous les projets</option>
           {projects.map((p) => <option key={p}>{p}</option>)}
         </select>

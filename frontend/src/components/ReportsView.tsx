@@ -1,23 +1,16 @@
 import { useState } from "react";
-import { api, Config, NoteSummary, today } from "../api";
+import { api, Config, today } from "../api";
 
 type Props = {
   config: Config;
-  files: NoteSummary[];
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
 
-export default function ReportsView({ config, files, onOpen, notify }: Props) {
+export default function ReportsView({ config, onOpen, notify }: Props) {
   const [date, setDate] = useState(today());
   const [extra, setExtra] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const reports = files
-    .filter((f) => f.type === "rapport")
-    .sort((a, b) => b.stem.localeCompare(a.stem));
-  const weekly = reports.filter((r) => r.path.startsWith("rapports/hebdo/"));
-  const taskReports = reports.filter((r) => !r.path.startsWith("rapports/hebdo/"));
 
   const generate = async () => {
     setBusy(true);
@@ -56,18 +49,10 @@ export default function ReportsView({ config, files, onOpen, notify }: Props) {
         {!config.llm_enabled && <p className="warning">API LLM non configurée : renseignez VIBE_BASE_URL et VIBE_API_KEY dans .env.</p>}
       </section>
 
-      <section className="panel">
-        <h3>Rapports hebdomadaires</h3>
-        {weekly.length === 0 && <p className="muted small">Aucun rapport pour l'instant.</p>}
-        <ul className="link-list">
-          {weekly.map((r) => <li key={r.path}><button className="link" onClick={() => onOpen(r.path)}>{r.title}</button></li>)}
-        </ul>
-        <h3>Rapports d'avancement de tâches</h3>
-        <p className="muted small">À générer depuis la fiche d'une tâche (bouton « Rapport d'avancement »).</p>
-        <ul className="link-list">
-          {taskReports.map((r) => <li key={r.path}><button className="link" onClick={() => onOpen(r.path)}>{r.title}</button></li>)}
-        </ul>
-      </section>
+      <p className="muted small">
+        Les rapports enregistrés sont listés dans la barre latérale. Les rapports d'avancement se génèrent depuis
+        la fiche d'une tâche (bouton « Rapport d'avancement »).
+      </p>
     </div>
   );
 }
