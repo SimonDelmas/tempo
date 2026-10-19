@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
 import { ChatEntry, Conversation, loadChats, newConversation, saveChats } from "./chats";
 import ChatView from "./components/ChatView";
+import DraftsView from "./components/DraftsView";
 import EditorPane, { EditorActions } from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
@@ -88,7 +89,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Alt+1…5 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
+      // Alt+1…7 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
       const index = Number(e.key) - 1;
       if (e.altKey && !e.ctrlKey && index >= 0 && index < SPACES.length) {
         e.preventDefault();
@@ -163,6 +164,7 @@ export default function App() {
     imputations: <ImputationsSidebar files={files} revision={revision} current={path} week={params.date ?? null}
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
     inbox: null,
+    brouillons: null,
     chat: <ChatSidebar chats={chats} current={params.c ?? null}
       onSelect={(c) => navigate(href("chat", null, { c }))}
       onDelete={(id) => {
@@ -181,6 +183,8 @@ export default function App() {
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
     chat: <ChatView config={config} conversation={chats.find((c) => c.id === params.c) ?? null}
       onAppend={appendChat} onReplace={replaceChatEntry} onOpen={open} notify={notify} />,
+    brouillons: <DraftsView config={config} files={files} current={params.d ?? null}
+      onSelect={(d) => navigate(href("brouillons", null, { d }))} onOpen={open} notify={notify} />,
   }[space];
 
   const layout = [sidebar ? "with-sidebar" : "", path ? "with-right" : ""].join(" ");

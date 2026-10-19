@@ -29,6 +29,9 @@ const NOTE_FOLDERS: [(&str, &str); 7] = [
     ("note", "sujets"),
 ];
 
+/// Types de notes que l'on peut créer (hors journal).
+pub const NOTE_KINDS: [&str; 7] = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation"];
+
 pub fn render(template: &str, values: &[(&str, &str)]) -> String {
     values.iter().fold(template.to_string(), |text, (key, value)| text.replace(&format!("{{{{{key}}}}}"), value))
 }
@@ -84,6 +87,11 @@ impl JournalService {
     }
 
     pub fn create_note(&self, kind: &str, title: &str, date: Option<&str>) -> Result<String> {
+        self.create_note_with_body(kind, title, date, None)
+    }
+
+    /// Comme [`Self::create_note`] ; `body` remplace ce qui suit le titre dans le modèle.
+    pub fn create_note_with_body(&self, kind: &str, title: &str, date: Option<&str>, body: Option<&str>) -> Result<String> {
         if kind == "journal" {
             return self.ensure(date);
         }
@@ -107,7 +115,12 @@ impl JournalService {
         let title = if kind == "reunion" { name.as_str() } else { file_stem };
         let template = self.template(if kind == "reunion" { "reunion" } else { "note" })?;
         let text = render(&template, &[("date", &date), ("title", title), ("type", kind)]);
-        self.vault.write(&rel, &with_title(&text, title), None, true)?;
+        let text = with_title(&text, title);
+        let text = match body.map(str::trim).filter(|b| !b.is_empty()) {
+            Some(body) => with_body(&text, body),
+            None => text,
+        };
+        self.vault.write(&rel, &text, None, true)?;
         self.index.upsert(&rel)?;
         Ok(rel)
     }
@@ -136,6 +149,13 @@ fn with_title(text: &str, title: &str) -> String {
     join_frontmatter(&meta, &body)
 }
 
+/// Remplace ce qui suit le titre de niveau 1 (posé par [`with_title`]) par `body`.
+fn with_body(text: &str, body: &str) -> String {
+    let (meta, current) = split_frontmatter(text);
+    let kept = H1_RE.find(current).map_or("", |m| &current[..m.end()]);
+    join_frontmatter(&meta, &format!("{kept}\n\n{body}\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +174,11 @@ mod tests {
         assert_eq!(with_title(text, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\n\n## Suite\n");
         let sans_titre = "---\ntype: note\n---\n\nTexte\n";
         assert_eq!(with_title(sans_titre, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\nTexte\n");
+    }
+
+    #[test]
+    fn with_body_remplace_le_corps_du_modele() {
+        let text = "---\ntype: reunion\ntitle: Point\n---\n\n# Point\n\n## Participants\n";
+        assert_eq!(with_body(text, "- a"), "---\ntype: reunion\ntitle: Point\n---\n\n# Point\n\n- a\n");
     }
 }

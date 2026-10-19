@@ -319,3 +319,27 @@ export type TaskDraft = {
 };
 
 export type TextAction = "resumer" | "reformuler" | "actions";
+
+/** brouillon : texte libre d'un onglet de l'espace Draft (hors notes, `.brouillons/` du vault) */
+export type Draft = { id: string; title: string; content: string; created: string; updated: string };
+
+export type DraftProposal = {
+  note: { accepted: boolean; type: string; title: string; content: string } | null;
+  tasks: (TaskDraft & { accepted: boolean; status: string })[];
+  comment: string;
+};
+
+export const drafts = {
+  list: () => request<Draft[]>("GET", "/api/drafts"),
+  create: (title = "") => request<Draft>("POST", "/api/drafts", { title }),
+  save: (id: string, changes: { title?: string; content?: string }) =>
+    request<Draft>("PUT", `/api/drafts/${encodeURIComponent(id)}`, changes),
+  remove: (id: string) => request("DELETE", `/api/drafts/${encodeURIComponent(id)}`),
+  analyze: (id: string) => request<DraftProposal>("POST", `/api/drafts/${encodeURIComponent(id)}/analyze`),
+  apply: (id: string, proposal: DraftProposal, close: boolean) =>
+    request<{ note: string | null; created_tasks: string[]; closed: boolean }>(
+      "POST", `/api/drafts/${encodeURIComponent(id)}/apply`, { proposal, close }),
+};
+
+/** types de notes proposés à la création (NOTE_KINDS dans journal.rs) */
+export const NOTE_KINDS = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation"];

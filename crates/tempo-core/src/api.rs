@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::chat::{ChatMessage, ChatProposal, Role};
+use crate::drafts::DraftProposal;
 use crate::error::{vault_err, Error, Result};
 use crate::imputations::Hours;
 use crate::inbox::InboxProposal;
@@ -199,6 +200,26 @@ struct TextAction {
 }
 
 #[derive(Deserialize)]
+struct DraftCreate {
+    #[serde(default)]
+    title: String,
+}
+
+#[derive(Deserialize)]
+struct DraftSave {
+    title: Option<String>,
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DraftApply {
+    proposal: DraftProposal,
+    /// retire le brouillon une fois la note et les tâches créées
+    #[serde(default)]
+    close: bool,
+}
+
+#[derive(Deserialize)]
 struct ChatRequest {
     messages: Vec<ChatMessage>,
 }
@@ -260,6 +281,11 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         // actions IA de l'éditeur
         .route("/api/assist/extract-tasks", post(extract_tasks))
         .route("/api/assist/text", post(transform_text))
+        // brouillons
+        .route("/api/drafts", get(list_drafts).post(create_draft))
+        .route("/api/drafts/{id}", put(save_draft).delete(delete_draft))
+        .route("/api/drafts/{id}/analyze", post(analyze_draft))
+        .route("/api/drafts/{id}/apply", post(apply_draft))
         // chat
         .route("/api/chat", post(chat))
         .route("/api/chat/stream", post(chat_stream))
@@ -559,6 +585,36 @@ async fn extract_tasks(State(s): State<AppState>, Query(q): Query<PathParam>) ->
 
 async fn transform_text(State(s): State<AppState>, JsonBody(body): JsonBody<TextAction>) -> ApiResult {
     blocking(move || s.assist.transform(&body.action, &body.text)).await
+}
+
+// --- brouillons ----------------------------------------------------------------
+
+async fn list_drafts(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.drafts.list()).await
+}
+
+async fn create_draft(State(s): State<AppState>, JsonBody(body): JsonBody<DraftCreate>) -> ApiResult {
+    blocking(move || s.drafts.create(&body.title)).await
+}
+
+async fn save_draft(State(s): State<AppState>, Path(id): Path<String>, JsonBody(body): JsonBody<DraftSave>) -> ApiResult {
+    blocking(move || s.drafts.save(&id, body.title.as_deref(), body.content.as_deref())).await
+}
+
+async fn delete_draft(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || {
+        s.drafts.delete(&id)?;
+        Ok(json!({"ok": true}))
+    })
+    .await
+}
+
+async fn analyze_draft(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || s.drafts.analyze(&id, None)).await
+}
+
+async fn apply_draft(State(s): State<AppState>, Path(id): Path<String>, JsonBody(body): JsonBody<DraftApply>) -> ApiResult {
+    blocking(move || s.drafts.apply(&id, &body.proposal, body.close)).await
 }
 
 // --- chat ----------------------------------------------------------------------

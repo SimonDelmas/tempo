@@ -9,6 +9,7 @@ pub mod assist;
 pub mod chat;
 pub mod config;
 pub mod de;
+pub mod drafts;
 pub mod error;
 pub mod imputations;
 pub mod inbox;

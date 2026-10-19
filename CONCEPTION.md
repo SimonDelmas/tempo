@@ -37,6 +37,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition, périodes de saisie
    semantic.rs embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
+   drafts.rs   brouillons (.brouillons/, hors index) → proposition de note et de tâches
    chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
    llm.rs      client OpenAI-compatible (Vibe, ureq), mode JSON, FakeLlm pour les tests
    de.rs       désérialisation tolérante des réponses du modèle (valeurs par défaut)
@@ -84,6 +85,8 @@ imputations/AAAA/    AAAA-Sxx.md (heures saisies par jour et par compte)
 imputations/saisies.md  dates de dernière saisie dans l'outil de gestion des temps
 _templates/          journal.md, reunion.md, note.md
 .tempo/              index.db (index), vectors.db (embeddings) : caches reconstructibles
+.brouillons/         <id>.md : brouillons de l'espace Draft (frontmatter title / created /
+                     updated), hors index : ni notes ni cache
 .trash/              notes supprimées depuis l'application (horodatées, récupérables)
 ```
 
@@ -198,6 +201,22 @@ Extraction de tâches d'une note (propositions à cocher, doublons signalés, li
 fin de note après création) ; résumé, reformulation ou liste d'actions de la sélection ou de
 la note. `assist.rs` n'écrit rien : l'éditeur insère le résultat après relecture.
 
+## Brouillons (espace Draft)
+
+Un onglet par brouillon, fichier `.brouillons/<AAAAMMJJ-HHMMSS>.md` (ordre de création =
+ordre des onglets). Le dossier commence par un point : l'index et le watcher l'ignorent,
+les brouillons ne sont donc pas des notes, mais ils vivent dans le vault (source de vérité)
+plutôt que dans le stockage local de la fenêtre, et survivent ainsi aux mises à jour comme
+à un changement de port. Sauvegarde automatique (`PUT /api/drafts/{id}`) ; fermer un onglet
+déplace le fichier dans `.trash/`.
+
+« Analyser » (`drafts.rs`, `DRAFT_SYSTEM`) : avec les projets connus et les tâches
+ouvertes en contexte, le modèle propose une note (`type` parmi `NOTE_KINDS`, titre, contenu
+Markdown) et/ou des tâches (`duplicate_of` vérifié, tâche en doublon décochée). Rien n'est
+écrit avant « Créer » : la note est créée depuis son modèle (le corps remplace celui du
+modèle), les tâches citent la note (`créée depuis [[…]]`), la note les liste (section
+`## Tâches` et clé `tasks` si le modèle la prévoit), puis le brouillon est fermé si demandé.
+
 ## Chat
 
 Agent en boucle d'outils (8 étapes au plus) via le mode JSON plutôt que le tool calling
@@ -234,4 +253,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
+- [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

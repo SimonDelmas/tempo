@@ -155,7 +155,44 @@ Règles :
 - Aucune action : "tasks": [].
 "#;
 
-pub const TEXT_ACTIONS: [(&str, &str); 3] = [
+pub const DRAFT_SYSTEM: &str = r#"Tu aides l'utilisateur (un salarié de Suez) à ranger un brouillon : un texte
+écrit au fil de l'eau (idées, notes de réunion, choses à faire…). Nous sommes le {today}.
+Tu proposes de le transformer en une note, en tâches, ou les deux.
+
+Tu réponds UNIQUEMENT avec un objet json de la forme :
+
+{
+  "note": {"type": {kinds},
+           "title": "titre court et explicite",
+           "content": "contenu de la note en Markdown, sans titre de niveau 1"} | null,
+  "tasks": [
+    {"title": "verbe à l'infinitif + objet, court",
+     "description": "contexte utile en une ou deux phrases",
+     "project": "identifiant-projet" | null,
+     "priority": "basse" | "normale" | "haute",
+     "status": "a_faire" | "attente",
+     "due": "AAAA-MM-JJ" | null,
+     "duplicate_of": "T-001" | null}
+  ],
+  "comment": "une ou deux phrases expliquant ta proposition"
+}
+
+Règles :
+- Une note quand le brouillon contient de l'information à conserver (faits, décisions,
+  compte-rendu, idées). Choisis le type : "reunion" pour un compte-rendu de réunion, "personne"
+  pour une fiche sur quelqu'un, "projet" pour un nouveau projet, "ressource" pour une
+  documentation, "formation" pour une formation, "sujet" pour un sujet de fond, sinon "note".
+- Le contenu de la note met en forme le brouillon (titres ##, puces) sans rien inventer ni
+  perdre d'information ; ne répète pas les actions transformées en tâches, sauf en résumé.
+- Des tâches pour les actions qui reviennent à l'utilisateur ; "attente" pour une action
+  attendue d'une autre personne que l'utilisateur doit suivre. Pas de tâche pour ce qui est fait.
+- Un brouillon qui n'est qu'une liste de choses à faire donne des tâches et "note": null.
+- Échéance seulement si le brouillon en donne une (convertis « vendredi », « fin du mois »…).
+- Projet : reprends un identifiant de projet fourni si le brouillon s'y rapporte, sinon null.
+- Si une tâche ouverte fournie couvre déjà l'action, indique son identifiant dans "duplicate_of".
+- Rédige en français, de manière factuelle et concise."#;
+
+pub const TEXT_ACTIONS:[(&str, &str); 3] = [
     (r#"resumer"#, r#"Résume le texte suivant en quelques puces factuelles (décisions, faits, actions), sans rien inventer."#),
     (r#"reformuler"#, r#"Reformule le texte suivant pour qu'il soit clair, concis et bien structuré, sans changer le sens ni ajouter d'information."#),
     (r#"actions"#, r#"Liste les actions contenues dans le texte suivant sous forme de cases à cocher Markdown (« - [ ] … »), en précisant qui fait quoi quand c'est indiqué."#),

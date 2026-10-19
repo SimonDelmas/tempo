@@ -6,6 +6,7 @@ use std::time::Duration;
 use crate::assist::AssistService;
 use crate::chat::ChatService;
 use crate::config::Settings;
+use crate::drafts::DraftService;
 use crate::error::Result;
 use crate::imputations::ImputationService;
 use crate::inbox::InboxService;
@@ -29,6 +30,7 @@ pub struct Services {
     pub assist: AssistService,
     pub chat: ChatService,
     pub imputations: ImputationService,
+    pub drafts: DraftService,
 }
 
 impl Services {
@@ -65,6 +67,7 @@ impl Services {
                 settings.clone(),
                 Some(semantic.clone()),
             ),
+            drafts: DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()),
             imputations: ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm, settings.clone()),
             settings,
             vault,

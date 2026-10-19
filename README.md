@@ -55,7 +55,7 @@ http://localhost:5173.
 ## Utilisation
 
 - **Navigation** : la barre de gauche donne accès aux espaces Notes, Tâches, Rapports,
-  Imputations et Inbox (Alt+1…5), chacun avec sa propre barre latérale. Chaque page a son
+  Imputations, Inbox, Chat et Draft (Alt+1…7), chacun avec sa propre barre latérale. Chaque page a son
   adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
   arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
@@ -91,6 +91,13 @@ http://localhost:5173.
   dans `00-inbox/`, « Analyser avec l'IA », ajuster la proposition, « Appliquer ».
   Appliquer ou ignorer un entrant passe au suivant ; l'échange est ouvert une fois l'inbox vidée.
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.
+- **Draft** : brouillons en onglets pour écrire au fil de l'eau (« + » pour en ouvrir un,
+  « × » ou clic molette pour le fermer, titre facultatif). Ce ne sont pas des notes : ils
+  sont enregistrés automatiquement dans `<vault>/.brouillons/`, hors de l'index, et
+  retrouvés au redémarrage comme après une mise à jour. « Analyser » demande à l'IA de
+  transformer le brouillon en note (type, titre et contenu mis en forme) et/ou en tâches
+  (doublons de tâches ouvertes signalés) ; après ajustement, « Créer » écrit la note et les
+  tâches (reliées entre elles) puis ferme le brouillon si la case est cochée.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
 - **Imputations** : comptes d'imputation (nom, alias, type, jours attribués, description
