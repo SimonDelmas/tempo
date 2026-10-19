@@ -45,6 +45,11 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une
   tâche, de mettre à jour une tâche ou d'ajouter une ligne au journal : rien n'est écrit avant
   « Appliquer ». Les conversations sont conservées dans le navigateur.
+- **Recherche sémantique** (si `TEMPO_EMBED_MODEL` est renseigné) : bouton ≈ à côté de la
+  recherche des notes, suggestions de liens (notes proches pas encore liées) dans le panneau
+  de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont
+  vectorisées en arrière-plan dans `<vault>/.tempo/vectors.db` (sqlite-vec), seulement
+  quand elles changent.
 - **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,
   `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour

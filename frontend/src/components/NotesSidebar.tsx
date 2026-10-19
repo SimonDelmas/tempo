@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, NoteSummary, SearchResult } from "../api";
+import { api, NoteSummary, SearchResult, SemanticStatus } from "../api";
 import { isSpaceFolder } from "../router";
 
 type Props = {
   files: NoteSummary[];
   current: string | null;
+  /** recherche sémantique disponible (modèle d'embeddings configuré) */
+  semantic: boolean;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
@@ -68,9 +70,11 @@ function TreeNode({ name, tree, depth, prefix, current, collapsed, toggle, onOpe
 
 const DEFAULT_COLLAPSED = ["_templates", "echanges", "00-inbox"];
 
-export default function NotesSidebar({ files, current, onOpen, notify }: Props) {
+export default function NotesSidebar({ files, current, semantic, onOpen, notify }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [byMeaning, setByMeaning] = useState(false);
+  const [status, setStatus] = useState<SemanticStatus | null>(null);
   const [collapsed, setCollapsed] = useState(() => new Set(DEFAULT_COLLAPSED));
   const [creating, setCreating] = useState(false);
   const [newType, setNewType] = useState("reunion");
@@ -80,9 +84,16 @@ export default function NotesSidebar({ files, current, onOpen, notify }: Props) 
 
   useEffect(() => {
     if (!query.trim()) return setResults([]);
-    const handle = window.setTimeout(() => api.search(query).then(setResults).catch(() => {}), 200);
+    const search = byMeaning
+      ? () => api.semanticSearch(query).then(setResults).catch((e) => notify(e.message, true))
+      : () => api.search(query).then(setResults).catch(() => {});
+    const handle = window.setTimeout(search, byMeaning ? 450 : 200);
     return () => window.clearTimeout(handle);
-  }, [query]);
+  }, [query, byMeaning, notify]);
+
+  useEffect(() => {
+    if (byMeaning) api.semanticStatus().then(setStatus).catch(() => setStatus(null));
+  }, [byMeaning]);
 
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -130,8 +141,19 @@ export default function NotesSidebar({ files, current, onOpen, notify }: Props) 
         <button className="nav" onClick={() => setCreating(true)}>+ Nouvelle note</button>
       )}
 
-      <input className="search" placeholder="Rechercher…  (Ctrl+P : ouvrir)" value={query}
-        onChange={(e) => setQuery(e.target.value)} />
+      <div className="search-row">
+        <input className="search" value={query} onChange={(e) => setQuery(e.target.value)}
+          placeholder={byMeaning ? "Rechercher par le sens…" : "Rechercher…  (Ctrl+P : ouvrir)"} />
+        {semantic && (
+          <button className={`ghost toggle ${byMeaning ? "on" : ""}`} onClick={() => setByMeaning((b) => !b)}
+            title="Recherche par le sens (notes proches même sans les mêmes mots)">≈</button>
+        )}
+      </div>
+      {byMeaning && status && (
+        <p className={`small ${status.error ? "warning" : "muted"}`}>
+          {status.error ?? `Index sémantique : ${status.indexed} / ${status.total} notes`}
+        </p>
+      )}
 
       {query.trim() ? (
         <ul className="search-results">

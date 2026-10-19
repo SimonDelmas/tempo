@@ -26,6 +26,7 @@ export type Config = {
   model_smart: string;
   statuses: string[];
   priorities: string[];
+  semantic_enabled: boolean;
 };
 
 export type InboxItem = { path: string; content: string; preview: string };
@@ -80,7 +81,18 @@ export type ImputationWeek = {
   path: string | null;
 };
 
-export type SearchResult = { path: string; title: string; type: string; snippet: string };
+/** note trouvée par la recherche sémantique (score : proximité de 0 à 1) */
+export type SemanticHit = NoteSummary & { snippet: string; score: number };
+
+export type SemanticStatus = {
+  enabled: boolean;
+  model: string | null;
+  indexed: number;
+  total: number;
+  error: string | null;
+};
+
+export type SearchResult ={ path: string; title: string; type: string; snippet: string };
 
 export class ApiError extends Error {
   status: number;
@@ -151,6 +163,9 @@ export const api = {
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
   chat: (messages: ChatHistory) => request<ChatReply>("POST", "/api/chat", { messages }),
   chatStream,
+  semanticSearch: (query: string) => request<SemanticHit[]>("GET", "/api/semantic/search" + q({ q: query })),
+  semanticRelated: (path: string) => request<SemanticHit[]>("GET", "/api/semantic/related" + q({ path })),
+  semanticStatus: () => request<SemanticStatus>("GET", "/api/semantic/status"),
   extractTasks: (path: string) =>
     request<{ tasks: TaskDraft[] }>("POST", "/api/assist/extract-tasks" + q({ path })),
   transformText: (action: TextAction, text: string) =>

@@ -314,3 +314,10 @@ button.toggle.on { color: var(--accent); background: var(--accent-soft); }
 .cm-lp-done { color: var(--muted); text-decoration: line-through; }
 .cm-lp-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .editor-header button { white-space: nowrap; }
+
+/* --- recherche sémantique ---------------------------------------------- */
+.search-row { display: flex; gap: 4px; align-items: center; margin: 10px 0 6px; }
+.search-row .search { flex: 1; margin: 0; min-width: 0; }
+.search-row .toggle { padding: 4px 9px; }
+.suggestion-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+button.mini { padding: 0 6px; line-height: 1.4; }

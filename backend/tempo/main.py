@@ -18,6 +18,7 @@ from .index import Index
 from .journal import JournalService
 from .llm import LLM, LLMError, LLMNotConfigured, build_llm
 from .reports import ReportService
+from .semantic import Embedder, SemanticIndex, openai_embedder
 from .tasks import PRIORITIES, STATUSES, TaskService
 from .vault import ConflictError, NotFoundError, Vault, VaultError
 
@@ -96,16 +97,21 @@ class WeekHours(BaseModel):
 
 
 class Services:
-    def __init__(self, settings: Settings, llm: LLM):
+    def __init__(self, settings: Settings, llm: LLM, embedder: Embedder | None = None):
         self.settings = settings
         self.vault = Vault(settings.vault)
         self.index = Index(self.vault, self.vault.root / ".tempo" / "index.db")
+        if embedder is None and settings.embed_enabled:
+            embedder = openai_embedder(settings)
+        self.semantic = SemanticIndex(self.vault, self.index, embedder,
+                                      self.vault.root / ".tempo" / "vectors.db", settings.embed_model)
         self.tasks = TaskService(self.vault, self.index)
         self.journal = JournalService(self.vault, self.index)
         self.inbox = InboxService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.reports = ReportService(self.vault, self.index, self.tasks, llm, settings)
         self.assist = AssistService(self.vault, self.index, self.tasks, llm, settings)
-        self.chat = ChatService(self.vault, self.index, self.tasks, self.journal, llm, settings)
+        self.chat = ChatService(self.vault, self.index, self.tasks, self.journal, llm, settings,
+                                semantic=self.semantic)
         self.imputations = ImputationService(self.vault, self.index, self.reports, llm, settings)
 
 
@@ -113,16 +119,19 @@ def _note_summary(note: dict) -> dict:
     return {k: note[k] for k in ("path", "stem", "alias", "title", "type", "date")}
 
 
-def create_app(settings: Settings | None = None, llm: LLM | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, llm: LLM | None = None,
+               embedder: Embedder | None = None) -> FastAPI:
     settings = settings or load_settings()
-    s = Services(settings, llm or build_llm(settings))
+    s = Services(settings, llm or build_llm(settings), embedder)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         s.index.rebuild()
         if settings.watch:
             s.index.start_watching()
+            s.semantic.start()
         yield
+        s.semantic.stop()
         s.index.stop_watching()
 
     app = FastAPI(title="Tempo", lifespan=lifespan)
@@ -155,7 +164,8 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     def get_config():
         return {"vault": str(s.vault.root), "llm_enabled": settings.llm_enabled,
                 "model_fast": settings.model_fast, "model_smart": settings.model_smart,
-                "statuses": STATUSES, "priorities": PRIORITIES}
+                "statuses": STATUSES, "priorities": PRIORITIES,
+                "semantic_enabled": s.semantic.enabled}
 
     @app.get("/api/state")
     def get_state():
@@ -303,6 +313,24 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     @app.post("/api/imputations/propose")
     def propose_week(date: str | None = None):
         return s.imputations.propose(_day(date))
+
+    # --- recherche sémantique ----------------------------------------------
+
+    @app.get("/api/semantic/status")
+    def semantic_status():
+        return s.semantic.status()
+
+    @app.post("/api/semantic/sync")
+    def semantic_sync():
+        return {"synced": s.semantic.sync(), **s.semantic.status()}
+
+    @app.get("/api/semantic/search")
+    def semantic_search(q: str):
+        return s.semantic.search(q)
+
+    @app.get("/api/semantic/related")
+    def semantic_related(path: str):
+        return s.semantic.related(path)
 
     # --- actions IA de l'éditeur ---------------------------------------------
 

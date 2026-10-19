@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
 import { ChatEntry, Conversation, loadChats, newConversation, saveChats } from "./chats";
 import ChatView from "./components/ChatView";
-import EditorPane from "./components/EditorPane";
+import EditorPane, { EditorActions } from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
 import NotesHome from "./components/NotesHome";
@@ -38,6 +38,7 @@ export default function App() {
   const [chats, setChats] = useState<Conversation[]>(loadChats);
   const lastRevision = useRef(-1);
   const lastRoutes = useRef(loadLastRoutes());
+  const editorActions = useRef<EditorActions>({});
   const route = useRoute();
   const { space, path, params } = route;
 
@@ -129,7 +130,8 @@ export default function App() {
   if (!config) return <div className="loading">Chargement…</div>;
 
   const sidebar = {
-    notes: <NotesSidebar files={files} current={path} onOpen={open} notify={notify} />,
+    notes: <NotesSidebar files={files} current={path} semantic={config.semantic_enabled} onOpen={open}
+      notify={notify} />,
     taches: <TasksSidebar revision={revision} current={path} project={params.projet ?? null} onOpen={open}
       onBoard={(projet) => navigate(href("taches", null, { projet }))} />,
     rapports: <ReportsSidebar files={files} current={path} onOpen={open} onHome={() => navigate(href("rapports"))} />,
@@ -166,11 +168,13 @@ export default function App() {
 
       <main>
         {path
-          ? <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify} />
+          ? <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify}
+            actions={editorActions} />
           : home}
       </main>
 
-      {path && <RightPanel path={path} revision={revision} onOpen={open} />}
+      {path && <RightPanel path={path} revision={revision} semantic={config.semantic_enabled} onOpen={open}
+        onLink={(name) => editorActions.current.appendLink?.(name)} />}
 
       {quickOpen && <QuickOpen files={files} onOpen={open} onClose={() => setQuickOpen(false)} />}
 

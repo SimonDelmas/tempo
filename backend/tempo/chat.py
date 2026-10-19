@@ -22,6 +22,7 @@ from .index import Index, extract_links
 from .journal import JournalService
 from .llm import LLM, extract_json
 from .prompts import CHAT_SYSTEM
+from .semantic import SemanticIndex
 from .tasks import PRIORITIES, STATUSES, TaskService
 from .vault import NotFoundError, Vault, VaultError, split_frontmatter
 
@@ -126,8 +127,9 @@ def partial_answer(raw: str) -> str | None:
 
 class ChatService:
     def __init__(self, vault: Vault, index: Index, tasks: TaskService, journal: JournalService,
-                 llm: LLM, settings: Settings):
+                 llm: LLM, settings: Settings, semantic: SemanticIndex | None = None):
         self.vault = vault
+        self.semantic = semantic
         self.index = index
         self.tasks = tasks
         self.journal = journal
@@ -152,6 +154,11 @@ class ChatService:
                  description='{"start": "AAAA-MM-JJ", "end": "AAAA-MM-JJ"} — événements '
                              "d'historique des tâches sur une période (créations, statuts, notes)"),
         ]}
+        if semantic and semantic.enabled:
+            self.tools["semantic_search"] = Tool(
+                name="semantic_search", run=self.semantic_search,
+                description='{"query": "question ou idée"} — recherche par le sens (notes proches '
+                            "même sans les mêmes mots)")
         self.proposal_tools = {t.name: t for t in [
             Tool(name="propose_task", run=self.propose_task,
                  description='{"title": "...", "description": "..." (optionnel), "project": '
@@ -180,6 +187,11 @@ class ChatService:
             if note:
                 results.append({**self._ref(note), "extrait": hit["snippet"]})
         return results
+
+    def semantic_search(self, query: str) -> list[dict]:
+        assert self.semantic
+        return [{**self._ref(n), "extrait": n["snippet"], "proximite": n["score"]}
+                for n in self.semantic.search(query, k=8)]
 
     def _resolve(self, name: str) -> str:
         name = name.strip().removeprefix("[[").removesuffix("]]").split("|")[0]

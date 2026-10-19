@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { MutableRefObject, useCallback, useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, TaskDraft, TextAction, toEmailText,
   TYPE_LABELS } from "../api";
@@ -6,6 +6,9 @@ import { ExtractTasksDialog, TEXT_ACTION_LABELS, TextResultDialog } from "./Edit
 import MarkdownEditor from "./MarkdownEditor";
 
 const PREVIEW_KEY = "tempo.livePreview";
+
+/** actions sur la note ouverte, appelables depuis le reste de l'interface */
+export type EditorActions = { appendLink?: (name: string) => void };
 
 type SaveStatus ="enregistré" | "modifié" | "enregistrement…" | "conflit" | "erreur";
 
@@ -16,9 +19,10 @@ type Props = {
   revision: number;
   onOpen: (path: string | null) => void;
   notify: (message: string, error?: boolean) => void;
+  actions?: MutableRefObject<EditorActions>;
 };
 
-export default function EditorPane({ path, files, config, revision, onOpen, notify }: Props) {
+export default function EditorPane({ path, files, config, revision, onOpen, notify, actions }: Props) {
   const [note, setNote] = useState<Note | null>(null);
   const [editorKey, setEditorKey] = useState(0);
   const [status, setStatus] = useState<SaveStatus>("enregistré");
@@ -176,6 +180,12 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
       : view.state.sliceDoc(sel.from, sel.to);
     const { text: result } = await api.transformText(action, text);
     setTextResult({ action, result, from: sel.from, to: sel.to, hasSelection: !sel.empty });
+  });
+
+  useEffect(() => {
+    if (!actions) return;
+    actions.current.appendLink = (name) => appendToNote(`- [[${name}]]`);
+    return () => { actions.current.appendLink = undefined; };
   });
 
   const origin = (() => {
