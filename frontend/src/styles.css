@@ -293,3 +293,16 @@ input.full { width: 100%; }
 .proposal-item.applied { border-style: solid; border-color: var(--border); }
 .proposal-item.ignored { opacity: .55; border-color: var(--border); }
 .proposal-title { font-weight: 600; }
+
+/* --- actions IA de l'éditeur ------------------------------------------- */
+.menu-host { position: relative; }
+.menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 260px; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+}
+.menu button { border: none; text-align: left; background: transparent; }
+.menu button:hover { background: var(--accent-soft); }
+.assist-modal { padding: 16px 18px; width: min(860px, 94vw); }
+.assist-modal textarea { font-family: var(--sans); }
+.assist-modal .proposal-card .grow { flex: 1; min-width: 220px; }
+.full-row { flex-basis: 100%; padding-left: 26px; }

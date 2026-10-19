@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, toEmailText, TYPE_LABELS } from "../api";
+import { EditorView } from "@codemirror/view";
+import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, TaskDraft, TextAction, toEmailText,
+  TYPE_LABELS } from "../api";
+import { ExtractTasksDialog, TEXT_ACTION_LABELS, TextResultDialog } from "./EditorAssist";
 import MarkdownEditor from "./MarkdownEditor";
 
 type SaveStatus = "enregistré" | "modifié" | "enregistrement…" | "conflit" | "erreur";
@@ -24,6 +27,11 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
   const dirty = useRef(false);
   const timer = useRef<number | undefined>(undefined);
   const pathRef = useRef(path);
+  const viewRef = useRef<EditorView | null>(null);
+  const [assistMenu, setAssistMenu] = useState(false);
+  const [drafts, setDrafts] = useState<TaskDraft[] | null>(null);
+  const [textResult, setTextResult] = useState<
+    { action: TextAction; result: string; from: number; to: number; hasSelection: boolean } | null>(null);
 
   const load = useCallback(async (p: string) => {
     const n = await api.readNote(p);
@@ -129,6 +137,43 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
     }
   };
 
+  // --- actions IA (la note est enregistrée avant, le résultat est validé avant écriture) ---
+
+  const insertText = (from: number, to: number, text: string) => {
+    viewRef.current?.dispatch({ changes: { from, to, insert: text } });
+  };
+
+  const appendToNote = (text: string) => {
+    const doc = viewRef.current?.state.doc;
+    if (!doc) return;
+    const current = doc.toString();
+    const sep = current.endsWith("\n\n") ? "" : current.endsWith("\n") ? "\n" : "\n\n";
+    insertText(doc.length, doc.length, `${sep}${text}\n`);
+  };
+
+  const extractTasks = () => run(async () => {
+    setAssistMenu(false);
+    await save();
+    setDrafts((await api.extractTasks(path)).tasks);
+  });
+
+  const textAction = (action: TextAction) => run(async () => {
+    setAssistMenu(false);
+    const view = viewRef.current;
+    if (!view) return;
+    const sel = view.state.selection.main;
+    const text = sel.empty
+      ? view.state.doc.toString().replace(/^---\n[\s\S]*?\n---\n/, "")
+      : view.state.sliceDoc(sel.from, sel.to);
+    const { text: result } = await api.transformText(action, text);
+    setTextResult({ action, result, from: sel.from, to: sel.to, hasSelection: !sel.empty });
+  });
+
+  const origin = (() => {
+    const file = files.find((f) => f.path === path);
+    return file ? file.alias || file.stem : path;
+  })();
+
   return (
     <div className="editor-pane">
       <header className="editor-header">
@@ -138,6 +183,20 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
           {status}
         </span>
         <span className="spacer" />
+        <div className="menu-host">
+          <button disabled={busy || !config.llm_enabled} onClick={() => setAssistMenu((o) => !o)}
+            title={config.llm_enabled ? "Actions IA sur la note ou la sélection" : "API LLM non configurée"}>
+            {busy ? "IA…" : "IA ▾"}
+          </button>
+          {assistMenu && (
+            <div className="menu" onMouseLeave={() => setAssistMenu(false)}>
+              <button onClick={extractTasks}>Extraire des tâches de la note</button>
+              {(Object.keys(TEXT_ACTION_LABELS) as TextAction[]).map((a) => (
+                <button key={a} onClick={() => textAction(a)}>{TEXT_ACTION_LABELS[a]} (sélection ou note)</button>
+              ))}
+            </div>
+          )}
+        </div>
         {type === "rapport" && (
           <button onClick={() => navigator.clipboard.writeText(toEmailText(content.current))
             .then(() => notify("Rapport copié (sans les liens sources)"))}>
@@ -196,7 +255,26 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
 
       {note && (
         <MarkdownEditor key={editorKey} initial={note.content} files={files} onChange={onChange}
-          onOpenLink={openLink} onCreateTask={createTask} />
+          onOpenLink={openLink} onCreateTask={createTask} viewRef={viewRef} />
+      )}
+
+      {drafts && (
+        <ExtractTasksDialog drafts={drafts} config={config} origin={origin} notify={notify}
+          onClose={() => setDrafts(null)}
+          onCreated={(created) => {
+            setDrafts(null);
+            if (created.length) appendToNote(created.map((t) => `- [[${t.id}]] ${t.title}`).join("\n"));
+          }} />
+      )}
+      {textResult && (
+        <TextResultDialog action={textResult.action} result={textResult.result} notify={notify}
+          hasSelection={textResult.hasSelection} onClose={() => setTextResult(null)}
+          onReplace={(text) => { insertText(textResult.from, textResult.to, text); setTextResult(null); }}
+          onInsert={(text) => {
+            if (textResult.hasSelection) insertText(textResult.to, textResult.to, `\n\n${text}\n`);
+            else appendToNote(text);
+            setTextResult(null);
+          }} />
       )}
     </div>
   );

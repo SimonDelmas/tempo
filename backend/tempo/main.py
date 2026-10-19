@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .assist import AssistService
 from .chat import ChatMessage, ChatProposal, ChatService
 from .config import PROJECT_ROOT, Settings, load_settings
 from .imputations import ImputationService
@@ -42,6 +43,7 @@ class TaskCreate(BaseModel):
     status: str = "a_faire"
     due: str | None = None
     description: str = ""
+    origin: str | None = None  # note d'origine, tracée dans l'historique de la tâche
 
 
 class TaskPatch(BaseModel):
@@ -78,6 +80,11 @@ class ProjectAccount(BaseModel):
     compte: str | None = None
 
 
+class TextAction(BaseModel):
+    action: str
+    text: str
+
+
 class ChatRequest(BaseModel):
     messages: list[ChatMessage]
 
@@ -97,6 +104,7 @@ class Services:
         self.journal = JournalService(self.vault, self.index)
         self.inbox = InboxService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.reports = ReportService(self.vault, self.index, self.tasks, llm, settings)
+        self.assist = AssistService(self.vault, self.index, self.tasks, llm, settings)
         self.chat = ChatService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.imputations = ImputationService(self.vault, self.index, self.reports, llm, settings)
 
@@ -295,6 +303,16 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     @app.post("/api/imputations/propose")
     def propose_week(date: str | None = None):
         return s.imputations.propose(_day(date))
+
+    # --- actions IA de l'éditeur ---------------------------------------------
+
+    @app.post("/api/assist/extract-tasks")
+    def extract_tasks(path: str):
+        return s.assist.extract_tasks(path)
+
+    @app.post("/api/assist/text")
+    def transform_text(body: TextAction):
+        return s.assist.transform(body.action, body.text)
 
     # --- chat ----------------------------------------------------------------
 

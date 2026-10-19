@@ -121,7 +121,7 @@ export const api = {
   links: (path: string) =>
     request<{ backlinks: NoteSummary[]; outlinks: NoteSummary[] }>("GET", "/api/links" + q({ path })),
   tasks: () => request<Task[]>("GET", "/api/tasks"),
-  createTask: (task: Partial<Task> & { title: string; description?: string }) =>
+  createTask: (task: Partial<Task> & { title: string; description?: string; origin?: string }) =>
     request<Task>("POST", "/api/tasks", task),
   updateTask: (id: string, changes: Record<string, string | null>, note?: string) =>
     request<Task>("PATCH", `/api/tasks/${encodeURIComponent(id)}`, { changes, note }),
@@ -151,6 +151,10 @@ export const api = {
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
   chat: (messages: ChatHistory) => request<ChatReply>("POST", "/api/chat", { messages }),
   chatStream,
+  extractTasks: (path: string) =>
+    request<{ tasks: TaskDraft[] }>("POST", "/api/assist/extract-tasks" + q({ path })),
+  transformText: (action: TextAction, text: string) =>
+    request<{ text: string }>("POST", "/api/assist/text", { action, text }),
   chatApply: (proposal: ChatProposal) =>
     request<{ path: string; message: string }>("POST", "/api/chat/apply", proposal),
 };
@@ -248,3 +252,14 @@ async function chatStream(messages: ChatHistory, onEvent: (event: ChatEvent) => 
   }
   throw new Error("Réponse de l'agent interrompue");
 }
+
+export type TaskDraft = {
+  title: string;
+  description: string;
+  project: string | null;
+  priority: string;
+  due: string | null;
+  duplicate_of: string | null;
+};
+
+export type TextAction = "resumer" | "reformuler" | "actions";

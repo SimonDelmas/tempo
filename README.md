@@ -50,6 +50,9 @@ Développement de l'interface avec rechargement à chaud : `uv run tempo` dans u
   `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour
   l'ouverture rapide. Sauvegarde automatique ; les modifications faites dans un autre
   éditeur sont rechargées, et un conflit est signalé si les deux versions divergent.
+  Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
+  liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
+  (ou de la note entière) ; le résultat est relu avant d'être inséré.
 - **Tâches** : kanban par statut (glisser-déposer), fiche de tâche avec statut / priorité /
   échéance, historique daté et bouton « Rapport d'avancement ».
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers

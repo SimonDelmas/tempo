@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { MutableRefObject, useEffect, useRef } from "react";
 import { EditorView, keymap, Decoration, MatchDecorator, ViewPlugin, ViewUpdate,
   DecorationSet, drawSelection, highlightActiveLine, placeholder } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -16,6 +16,8 @@ type Props = {
   onChange: (text: string) => void;
   onOpenLink: (name: string) => void;
   onCreateTask: (title: string) => Promise<string>;
+  /** vue CodeMirror, pour les actions qui agissent sur le texte (IA) */
+  viewRef?: MutableRefObject<EditorView | null>;
 };
 
 const markdownStyle = HighlightStyle.define([
@@ -86,7 +88,7 @@ const frontmatter = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
-export default function MarkdownEditor({ initial, files, onChange, onOpenLink, onCreateTask }: Props) {
+export default function MarkdownEditor({ initial, files, onChange, onOpenLink, onCreateTask, viewRef }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const callbacks = useRef({ files, onChange, onOpenLink, onCreateTask });
   callbacks.current = { files, onChange, onOpenLink, onCreateTask };
@@ -168,7 +170,11 @@ export default function MarkdownEditor({ initial, files, onChange, onOpenLink, o
       }),
     });
     view.focus();
-    return () => view.destroy();
+    if (viewRef) viewRef.current = view;
+    return () => {
+      if (viewRef) viewRef.current = null;
+      view.destroy();
+    };
     // l'éditeur est recréé via la prop `key` quand la note change
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

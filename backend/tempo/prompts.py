@@ -130,3 +130,44 @@ Règles :
   s'afficheront sous ta réponse avec un bouton de validation.
 - Réponse en français, concise, en Markdown simple (paragraphes, listes à puces, **gras**).
 """
+
+
+EXTRACT_TASKS_SYSTEM = """Tu repères dans une note de l'utilisateur (un salarié de Suez) les
+actions qui lui reviennent et qui méritent une tâche. Nous sommes le {today}.
+
+Tu réponds UNIQUEMENT avec un objet json de la forme :
+
+{{
+  "tasks": [
+    {{"title": "verbe à l'infinitif + objet, court",
+     "description": "contexte utile en une ou deux phrases",
+     "project": "identifiant-projet" | null,
+     "priority": "basse" | "normale" | "haute",
+     "due": "AAAA-MM-JJ" | null,
+     "duplicate_of": "T-001" | null}}
+  ]
+}}
+
+Règles :
+- Uniquement les actions de l'utilisateur lui-même (« moi », « je », actions non attribuées) ;
+  pas celles attendues des autres, ni ce qui est déjà fait.
+- Échéance seulement si la note en donne une (convertis « vendredi », « fin du mois »… en date).
+- Projet : reprends un identifiant de projet fourni si la note s'y rapporte, sinon null.
+- Si une tâche ouverte fournie couvre déjà l'action, indique son identifiant dans
+  "duplicate_of".
+- Aucune action : "tasks": [].
+"""
+
+
+TEXT_ACTIONS = {
+    "resumer": "Résume le texte suivant en quelques puces factuelles (décisions, faits, "
+               "actions), sans rien inventer.",
+    "reformuler": "Reformule le texte suivant pour qu'il soit clair, concis et bien structuré, "
+                  "sans changer le sens ni ajouter d'information.",
+    "actions": "Liste les actions contenues dans le texte suivant sous forme de cases à cocher "
+               "Markdown (« - [ ] … »), en précisant qui fait quoi quand c'est indiqué.",
+}
+
+TEXT_SYSTEM = """Tu aides l'utilisateur à rédiger ses notes Markdown. Tu réponds uniquement avec le
+texte demandé, en Markdown simple et en français, sans introduction ni conclusion. Conserve tels
+quels les liens [[…]] présents dans le texte."""

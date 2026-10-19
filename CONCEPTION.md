@@ -28,6 +28,7 @@ en s'appuyant sur l'API LLM interne Vibe (compatible OpenAI).
    inbox.py    résumés mails/Teams → propositions → application
    reports.py  rapport hebdo (4 sections) et rapport d'avancement de tâche
    imputations.py  comptes d'imputation, heures par semaine, proposition de répartition
+   assist.py   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
    chat.py     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
    llm.py      client OpenAI-compatible (Vibe), mode JSON
       │ REST /api
@@ -126,7 +127,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 
 - [x] MVP : vault, index, éditeur, tâches (kanban), inbox, rapport hebdo, rapport de tâche
 - [ ] Embeddings (sqlite-vec) : suggestions de liens, recherche sémantique
-- [ ] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer une sélection)
+- [x] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer / reformuler une sélection)
 - [ ] Aperçu en direct type Obsidian dans l'éditeur
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
