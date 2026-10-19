@@ -31,14 +31,23 @@ export default function BacklogView({ config, revision, project, projects, orpha
   const [draft, setDraft] = useState({ title: "", project: "", priority: "normale" });
   const [dragged, setDragged] = useState<string | null>(null);
   const [target, setTarget] = useState<Target | null>(null);
+  /** projet glissé et projet devant lequel le déposer (null : à la fin) */
+  const [draggedProject, setDraggedProject] = useState<string | null>(null);
+  const [projectTarget, setProjectTarget] = useState<string | null | undefined>(undefined);
+  /** ordre des projets renvoyé par le dernier déplacement, en attendant le rechargement */
+  const [moved, setMoved] = useState<Project[] | null>(null);
+  useEffect(() => setMoved(null), [projects]);
 
   const reload = () => api.backlog().then(setBacklog).catch((e) => notify(e.message, true));
   useEffect(() => { reload(); }, [revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!backlog) return <div className="loading">Chargement…</div>;
 
+  /** projets dans l'ordre du backlog : rang croissant, jamais ordonnés à la fin par titre */
+  const ordered = moved ?? [...projects].sort((a, b) =>
+    (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.title.localeCompare(b.title, "fr"));
   const groups: Group[] = [
-    ...projects.map((p) => ({ id: p.id, title: p.title })),
+    ...ordered.map((p) => ({ id: p.id, title: p.title })),
     ...orphans.map((id) => ({ id, title: id, missing: true })),
     { id: "", title: "Sans projet" },
   ].filter((g) => !project || g.id === project);
@@ -83,6 +92,34 @@ export default function BacklogView({ config, revision, project, projects, orpha
     }
   };
 
+  const endDrag = () => {
+    setDragged(null);
+    setTarget(null);
+    setDraggedProject(null);
+    setProjectTarget(undefined);
+  };
+
+  const dropProject = async () => {
+    const id = draggedProject, before = projectTarget;
+    endDrag();
+    if (!id || before === undefined || before === id) return;
+    try {
+      setMoved(await api.moveProject(id, before));
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+  };
+
+  /** en-tête de feature : dépôt d'un projet glissé avant ce projet (null : à la fin) */
+  const projectZone = (before: string | null) => ({
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (projectTarget !== before) setProjectTarget(before);
+    },
+    onDrop: (e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); dropProject(); },
+  });
+
   /** zone de dépôt : survol et dépôt d'une tâche glissée */
   const dropZone = (where: Target) => ({
     onDragOver: (e: React.DragEvent) => {
@@ -118,7 +155,7 @@ export default function BacklogView({ config, revision, project, projects, orpha
         </label>
       </div>
 
-      <table className="backlog" onDragEnd={() => { setDragged(null); setTarget(null); }}>
+      <table className="backlog" onDragEnd={endDrag}>
         <thead>
           <tr>
             <th className="grip" />
@@ -140,11 +177,21 @@ export default function BacklogView({ config, revision, project, projects, orpha
               return next;
             });
             const atEnd = target?.group === g.id && target.before === null;
+            /** seuls les projets ayant une note s'ordonnent (le rang est écrit dans la note) */
+            const movable = Boolean(g.id) && !g.missing;
+            const firstFixed = !movable && groups.findIndex((x) => !x.id || x.missing) === groups.indexOf(g);
+            const projectBefore = movable ? g.id : null;
+            const projectDrop = draggedProject !== null && (movable || firstFixed) && projectTarget === projectBefore;
             return (
               <Fragment key={g.id || "-"}>
-                <tr className={`feature ${atEnd && !open ? "drop-before" : ""}`}
-                  {...dropZone({ group: g.id, before: open ? items[0]?.id ?? null : null })}>
+                <tr className={`feature ${(atEnd && !open) || projectDrop ? "drop-before" : ""} ${draggedProject === g.id ? "dragging" : ""}`}
+                  draggable={movable}
+                  onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; setDraggedProject(g.id); }}
+                  {...(draggedProject !== null
+                    ? (movable || firstFixed ? projectZone(projectBefore) : {})
+                    : dropZone({ group: g.id, before: open ? items[0]?.id ?? null : null }))}>
                   <td colSpan={7}>
+                    {movable && <span className="feature-grip" title="Glisser pour ordonner les features">⋮⋮</span>}
                     <button className="ghost feature-toggle" onClick={toggle}>{open ? "▾" : "▸"}</button>
                     <span className={g.id ? "feature-title" : "feature-title muted"}>{g.title}</span>
                     {g.missing && <span className="muted small"> (sans note)</span>}

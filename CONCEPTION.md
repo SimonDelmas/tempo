@@ -130,6 +130,10 @@ semaine ISO du lundi au dimanche, même libellé que les imputations).
   `before` (à la fin sans) dans le projet `project` (`null` : sans projet) : rang médian
   entre les voisins, ou renumérotation du projet par pas de 1000 quand il n'y a plus de place.
   Un changement de projet est tracé dans l'historique.
+- Les features s'ordonnent de la même façon : `rank` dans la note du projet (`projets/*.md`),
+  `POST /api/projects/{id}/move` (`{before}`) renvoie les projets dans l'ordre du backlog.
+  `GET /api/projects` reste trié par titre (listes déroulantes) et expose `rank`. Les projets
+  cités sans note et « Sans projet » restent en fin de backlog.
 - `iterations` liste les semaines où la tâche a été planifiée ; la dernière est la semaine
   courante de planification (`iteration` dans l'API). `PATCH /api/tasks/{id}` avec
   `changes.iteration` (semaine ou `null`) remplace les semaines courantes ou futures et garde

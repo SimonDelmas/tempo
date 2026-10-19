@@ -91,6 +91,30 @@ fn move_orders_backlog_and_changes_project() {
 }
 
 #[tokio::test]
+async fn project_order_routes() {
+    let app = TestApp::new(None, None);
+    for title in ["Bascule", "Archivage"] {
+        assert_eq!(app.post("/api/projects", Some(json!({"title": title}))).await.status, StatusCode::OK);
+    }
+    // la liste des projets reste alphabétique, le rang sert au backlog
+    let ids = |v: serde_json::Value| -> Vec<String> {
+        v.as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(ids(app.get("/api/projects").await.json()), ["archivage", "bascule", "sap"]);
+
+    let moved = app.post("/api/projects/sap/move", Some(json!({"before": "archivage"}))).await;
+    assert_eq!(moved.status, StatusCode::OK, "{}", moved.text);
+    assert_eq!(ids(moved.json()), ["sap", "archivage", "bascule"]);
+    let moved = app.post("/api/projects/archivage/move", Some(json!({}))).await.json();
+    assert_eq!(ids(moved.clone()), ["sap", "bascule", "archivage"]);
+    assert!(moved.as_array().unwrap().iter().all(|p| p["rank"].is_i64()));
+
+    let note = app.get("/api/notes?path=projets/sap.md").await.json();
+    assert!(note["content"].as_str().unwrap().contains("\nrank: "), "rang dans la note du projet");
+    assert_eq!(app.post("/api/projects/inconnu/move", Some(json!({}))).await.status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn backlog_routes() {
     let app = TestApp::new(None, None);
     let created = app.post("/api/tasks", Some(json!({"title": "Préparer la démo", "project": "sap", "iteration": "2026-S50"}))).await;

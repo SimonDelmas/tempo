@@ -215,6 +215,34 @@ fn backlog_order(a: &Task, b: &Task) -> std::cmp::Ordering {
     (a.rank.is_none(), a.rank, &a.id).cmp(&(b.rank.is_none(), b.rank, &b.id))
 }
 
+/// Rangs à écrire pour insérer `moved` à la position `at` d'un groupe ordonné (qui ne le
+/// contient pas) : le rang médian entre les voisins s'il y a de la place, sinon une
+/// renumérotation du groupe par pas de [`RANK_STEP`] (seuls les rangs modifiés sont renvoyés,
+/// toujours celui de `moved`).
+pub fn rank_changes(group: &[(String, Option<i64>)], moved: &str, at: usize) -> Vec<(String, i64)> {
+    let prev = at.checked_sub(1).map(|i| group[i].1);
+    let next = group.get(at).map(|(_, rank)| *rank);
+    let free = match (prev, next) {
+        (None, None) => Some(RANK_STEP),
+        (Some(Some(p)), None) => Some(p + RANK_STEP),
+        (None, Some(Some(n))) => Some(n - RANK_STEP),
+        (Some(Some(p)), Some(Some(n))) if n - p > 1 => Some(p + (n - p) / 2),
+        _ => None,
+    };
+    if let Some(rank) = free {
+        return vec![(moved.to_string(), rank)];
+    }
+    let mut order: Vec<(&str, Option<i64>)> = group.iter().map(|(id, rank)| (id.as_str(), *rank)).collect();
+    order.insert(at, (moved, None));
+    order
+        .into_iter()
+        .enumerate()
+        .map(|(i, (id, old))| (id, old, (i as i64 + 1) * RANK_STEP))
+        .filter(|(id, old, rank)| *id == moved || *old != Some(*rank))
+        .map(|(id, _, rank)| (id.to_string(), rank))
+        .collect()
+}
+
 fn day_or_today(today_str: Option<&str>) -> Result<NaiveDate> {
     match today_str {
         Some(d) => parse_date(d),
@@ -455,24 +483,16 @@ impl TaskService {
         let project = project.filter(|p| !p.is_empty());
         let task = self.get(task_id)?.task;
         let mut group: Vec<Task> =
-            self.all()?.into_iter().filter(|t| t.id != task.id && t.project.as_deref() == project).collect();
-        group.sort_by(backlog_order);
+            self.all()?.into_iter().filter(|t| t.id != task.id && t.project.as_deref() == project).collect();        group.sort_by(backlog_order);
         let at = match before.filter(|b| !b.is_empty()) {
             Some(b) => group.iter().position(|t| t.id == b).ok_or_else(|| not_found(format!("Tâche introuvable : {b}")))?,
             None => group.len(),
         };
-        let prev = at.checked_sub(1).map(|i| group[i].rank);
-        let next = group.get(at).map(|t| t.rank);
-        let free = match (prev, next) {
-            (None, None) => Some(RANK_STEP),
-            (Some(Some(p)), None) => Some(p + RANK_STEP),
-            (None, Some(Some(n))) => Some(n - RANK_STEP),
-            (Some(Some(p)), Some(Some(n))) if n - p > 1 => Some(p + (n - p) / 2),
-            _ => None,
-        };
+        let ranks: Vec<(String, Option<i64>)> = group.into_iter().map(|t| (t.id, t.rank)).collect();
         let today_str = today().to_string();
-        let set_rank = |id: &str, rank: i64, moved: bool| {
-            self.edit(id, &today_str, |meta| {
+        for (id, rank) in rank_changes(&ranks, &task.id, at) {
+            let moved = id == task.id;
+            self.edit(&id, &today_str, |meta| {
                 meta.insert("rank".into(), Value::from(rank));
                 let old = meta_str(meta, "project");
                 if !moved || old.as_deref() == project {
@@ -483,19 +503,7 @@ impl TaskService {
                     None => meta.shift_remove("project"),
                 };
                 Ok(vec![format!("projet {} → {}", old.as_deref().unwrap_or("aucun"), project.unwrap_or("aucun"))])
-            })
-        };
-        match free {
-            Some(rank) => set_rank(&task.id, rank, true)?,
-            None => {
-                group.insert(at, task.clone());
-                for (i, t) in group.iter().enumerate() {
-                    let rank = (i as i64 + 1) * RANK_STEP;
-                    if t.id == task.id || t.rank != Some(rank) {
-                        set_rank(&t.id, rank, t.id == task.id)?;
-                    }
-                }
-            }
+            })?;
         }
         Ok(self.backlog(None)?.tasks)
     }
@@ -533,6 +541,26 @@ mod tests {
         assert_eq!(week_offset("2026-S53", 1).unwrap(), "2027-S01");
         assert_eq!(week_offset("2027-S01", -1).unwrap(), "2026-S53");
         assert!(week_start("2026-43").is_err());
+    }
+
+    #[test]
+    fn rank_changes_uses_gaps_then_renumbers() {
+        let group = |ranks: &[Option<i64>]| -> Vec<(String, Option<i64>)> {
+            ranks.iter().enumerate().map(|(i, r)| (format!("t{i}"), *r)).collect()
+        };
+        let ranked = group(&[Some(1000), Some(2000)]);
+        assert_eq!(rank_changes(&ranked, "x", 0), [("x".to_string(), 0)]);
+        assert_eq!(rank_changes(&ranked, "x", 1), [("x".to_string(), 1500)]);
+        assert_eq!(rank_changes(&ranked, "x", 2), [("x".to_string(), 3000)]);
+        assert_eq!(rank_changes(&[], "x", 0), [("x".to_string(), 1000)]);
+        // plus de place, ou voisins sans rang : renumérotation, rangs inchangés omis
+        let tight = group(&[Some(1000), Some(1001)]);
+        assert_eq!(rank_changes(&tight, "x", 1), [("x".to_string(), 2000), ("t1".to_string(), 3000)]);
+        let unranked = group(&[None, None]);
+        assert_eq!(
+            rank_changes(&unranked, "x", 1),
+            [("t0".to_string(), 1000), ("x".to_string(), 2000), ("t1".to_string(), 3000)]
+        );
     }
 
     #[test]

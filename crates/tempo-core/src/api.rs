@@ -148,6 +148,12 @@ struct WeekParam {
 }
 
 #[derive(Deserialize)]
+struct ProjectMove {
+    /// projet devant lequel se placer, absent pour la fin du backlog
+    before: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct TaskMove {
     /// projet (feature) de destination, vide ou absent pour « sans projet »
     project: Option<String>,
@@ -288,6 +294,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/accounts/{alias}", patch(update_account))
         .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{project_id}/account", put(set_project_account))
+        .route("/api/projects/{project_id}/move", post(move_project))
         .route("/api/imputations", get(get_week).put(save_week))
         .route("/api/imputations/propose", post(propose_week))
         .route("/api/imputations/saisies", get(get_tracking).post(add_saisie).delete(remove_saisie))
@@ -575,6 +582,11 @@ async fn set_project_account(
     JsonBody(body): JsonBody<ProjectAccount>,
 ) -> ApiResult {
     blocking(move || s.imputations.set_project_account(&project_id, body.compte.as_deref())).await
+}
+
+/// Ordre des projets (features) dans le backlog.
+async fn move_project(State(s): State<AppState>, Path(project_id): Path<String>, JsonBody(body): JsonBody<ProjectMove>) -> ApiResult {
+    blocking(move || s.imputations.move_project(&project_id, body.before.as_deref())).await
 }
 
 async fn get_week(State(s): State<AppState>, Query(q): Query<DateParam>) -> ApiResult {

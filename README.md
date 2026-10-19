@@ -87,7 +87,7 @@ http://localhost:5173.
 - **Tâches** : deux onglets inspirés d'Azure DevOps.
   - **Backlog** : les tâches regroupées par projet (les projets tiennent lieu de features),
     ordonnées par glisser-déposer ; déposer une tâche sous un autre projet la rattache à ce
-    projet. La colonne Itération planifie une tâche sur une semaine (courante ou suivantes).
+    projet. Les features elles-mêmes s'ordonnent en glissant leur ligne d'en-tête. La colonne Itération planifie une tâche sur une semaine (courante ou suivantes).
   - **Board** : kanban par statut (glisser-déposer) d'une semaine, la semaine courante par
     défaut ; flèches et liste pour afficher les autres semaines. Une tâche créée depuis le board
     est planifiée sur la semaine affichée. Au changement de semaine, les tâches non terminées

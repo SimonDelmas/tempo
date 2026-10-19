@@ -46,8 +46,11 @@ export function TasksSidebar({ revision, current, tab, project, onOpen, onNaviga
     for (const t of open) if (t.project) counts.set(t.project, (counts.get(t.project) ?? 0) + 1);
     const orphans = [...counts.keys()].filter((id) => !notes.some((p) => p.id === id))
       .sort((a, b) => a.localeCompare(b, "fr"));
+    // ordre des features du backlog : rang croissant, puis titre
+    const ordered = [...notes].sort((a, b) =>
+      (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.title.localeCompare(b.title, "fr"));
     return [
-      ...notes.map((p) => [p.id, p.title, counts.get(p.id) ?? 0] as const),
+      ...ordered.map((p) => [p.id, p.title, counts.get(p.id) ?? 0] as const),
       ...orphans.map((id) => [id, id, counts.get(id)!] as const),
     ];
   }, [open, notes]);

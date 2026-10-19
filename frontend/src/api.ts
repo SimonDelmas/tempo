@@ -95,7 +95,14 @@ export type Account = {
   path: string;
 };
 
-export type Project = { id: string; title: string; path: string; compte: string | null };
+export type Project = {
+  id: string;
+  title: string;
+  path: string;
+  compte: string | null;
+  /** position de la feature dans le backlog, null si jamais ordonnée */
+  rank: number | null;
+};
 
 /** heures par jour puis par alias de compte : { "2026-10-12": { "SAP-MIG": 6 } } */
 export type Hours = Record<string, Record<string, number>>;
@@ -212,6 +219,9 @@ export const api = {
   createProject: (title: string) => request<Project>("POST", "/api/projects", { title }),
   setProjectAccount: (id: string, compte: string | null) =>
     request<Project>("PUT", `/api/projects/${encodeURIComponent(id)}/account`, { compte }),
+  /** place le projet avant before dans le backlog (null : à la fin) ; renvoie les projets ordonnés */
+  moveProject: (id: string, before: string | null) =>
+    request<Project[]>("POST", `/api/projects/${encodeURIComponent(id)}/move`, { before }),
   imputations: (date: string) => request<ImputationWeek>("GET", "/api/imputations" + q({ date })),
   saveImputations: (date: string, hours: Hours, comment: string) =>
     request<ImputationWeek>("PUT", "/api/imputations", { date, hours, comment }),

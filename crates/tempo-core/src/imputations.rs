@@ -26,6 +26,7 @@ use crate::index::{Index, NoteRow};
 use crate::llm::{chat_json, Llm, Msg};
 use crate::prompts::IMPUTATION_SYSTEM;
 use crate::reports::ReportService;
+use crate::tasks::rank_changes;
 use crate::util::{iso_date, parse_date, week_bounds, week_label};
 use crate::vault::{join_frontmatter, meta_f64, meta_str, number, slugify, split_frontmatter, value_str, Meta, Vault};
 
@@ -171,6 +172,8 @@ pub struct Project {
     pub title: String,
     pub path: String,
     pub compte: Option<String>,
+    /// position de la feature dans le backlog, `None` si jamais ordonnée
+    pub rank: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,10 +424,44 @@ impl ImputationService {
             .index
             .by_type("projet")?
             .into_iter()
-            .map(|n| Project { compte: meta_str(&n.meta, "compte"), id: n.stem, title: n.title, path: n.path })
+            .map(|n| Project {
+                compte: meta_str(&n.meta, "compte"),
+                rank: n.meta.get("rank").and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))),
+                id: n.stem,
+                title: n.title,
+                path: n.path,
+            })
             .collect();
         projects.sort_by_key(|p| p.title.to_lowercase());
         Ok(projects)
+    }
+
+    /// Projets dans l'ordre du backlog : rang croissant, projets jamais ordonnés à la fin par
+    /// titre.
+    pub fn projects_by_rank(&self) -> Result<Vec<Project>> {
+        let mut projects = self.projects()?;
+        projects.sort_by_key(|p| (p.rank.is_none(), p.rank));
+        Ok(projects)
+    }
+
+    /// Place le projet avant le projet `before` dans le backlog (à la fin sans `before`).
+    pub fn move_project(&self, project_id: &str, before: Option<&str>) -> Result<Vec<Project>> {
+        self.project(project_id)?;
+        let group: Vec<Project> = self.projects_by_rank()?.into_iter().filter(|p| p.id != project_id).collect();
+        let at = match before.filter(|b| !b.is_empty()) {
+            Some(b) => group.iter().position(|p| p.id == b).ok_or_else(|| not_found(format!("Projet introuvable : {b}")))?,
+            None => group.len(),
+        };
+        let ranks: Vec<(String, Option<i64>)> = group.iter().map(|p| (p.id.clone(), p.rank)).collect();
+        for (id, rank) in rank_changes(&ranks, project_id, at) {
+            let path = self.project(&id)?.path;
+            let text = self.vault.read_text(&path)?;
+            let (mut meta, body) = split_frontmatter(&text);
+            meta.insert("rank".into(), Value::from(rank));
+            self.vault.write(&path, &join_frontmatter(&meta, body), None, false)?;
+            self.index.upsert(&path)?;
+        }
+        self.projects_by_rank()
     }
 
     /// Crée la note `projets/<slug>.md` ; l'identifiant du projet est le nom du fichier.

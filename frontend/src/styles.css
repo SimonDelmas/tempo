@@ -210,6 +210,8 @@ main { overflow: auto; min-width: 0; }
 .backlog td { padding: 4px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
 .backlog .grip { width: 18px; color: var(--muted); cursor: grab; text-align: center; user-select: none; }
 .backlog tr.feature td { background: var(--sidebar); font-weight: 600; padding: 6px 8px; }
+.backlog .feature-grip { color: var(--muted); cursor: grab; margin-right: 6px; user-select: none; font-weight: 400; }
+.backlog tr.feature.dragging { opacity: .4; }
 .backlog .feature-toggle { border: none; padding: 0 6px 0 0; }
 .backlog .feature .count { margin-left: 8px; }
 .backlog tr.task-row:hover td { background: var(--accent-soft); }
