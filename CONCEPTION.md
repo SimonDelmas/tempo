@@ -89,6 +89,11 @@ _templates/          journal.md, reunion.md, note.md
 
 Frontmatter commun : `type`, `date`, `projects`, `participants`, `tasks`, `tags`.
 
+Une note créée depuis l'application (`POST /api/notes`) porte le même nom partout : fichier
+`<titre>.md` (caractères interdits par Windows ou les wiki-links remplacés par des espaces ;
+réunions préfixées par la date, `AAAA-MM-JJ <titre>.md`), `title` du frontmatter et premier
+titre `# …`, forcés après le rendu du modèle de `_templates/`.
+
 Tâche :
 
 ```yaml

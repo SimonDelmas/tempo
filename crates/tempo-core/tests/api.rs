@@ -32,12 +32,14 @@ async fn api_flow() {
     assert!(conflict.json()["current_content"].as_str().unwrap().ends_with("Ajout\n"));
 
     let created = app.post("/api/notes", Some(json!({"type": "reunion", "title": "Point hebdo", "date": "2026-10-19"}))).await.json();
-    assert_eq!(created["path"], "reunions/2026/2026-10-19-point-hebdo.md");
+    assert_eq!(created["path"], "reunions/2026/2026-10-19 Point hebdo.md");
     for (kind, folder) in [("ressource", "ressources"), ("formation", "formations")] {
         let created = app.post("/api/notes", Some(json!({"type": kind, "title": "Guide ABAP"}))).await.json();
-        assert_eq!(created["path"], format!("{folder}/guide-abap.md"));
+        assert_eq!(created["path"], format!("{folder}/Guide ABAP.md"));
         let read = app.get(&format!("/api/notes?path={}", q(created["path"].as_str().unwrap()))).await.json();
         assert_eq!(read["meta"]["type"], kind);
+        assert_eq!(read["meta"]["title"], "Guide ABAP");
+        assert!(read["content"].as_str().unwrap().contains("\n# Guide ABAP\n"));
     }
 
     let today = app.post("/api/journal/today?date=2026-10-17", None).await.json();

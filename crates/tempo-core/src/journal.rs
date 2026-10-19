@@ -1,11 +1,16 @@
 //! Notes quotidiennes et création de notes à partir des modèles.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+use regex::Regex;
+use serde_json::Value;
 
 use crate::error::{vault_err, Result};
 use crate::index::Index;
 use crate::util::{parse_date, today};
-use crate::vault::{append_to_section, slugify, Vault};
+use crate::vault::{append_to_section, join_frontmatter, split_frontmatter, Vault};
+
+static H1_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#[ \t]+[^\r\n]*").unwrap());
 
 const JOURNAL_TEMPLATE: &str =
     "---\ntype: journal\ndate: {{date}}\n---\n\n# Journal du {{date}}\n\n## Notes\n\n## Échanges\n\n## Fait aujourd'hui\n";
@@ -94,11 +99,60 @@ impl JournalService {
             None => today().to_string(),
         };
         let folder = folder.replace("{year}", &date[..4]);
-        let stem = if kind == "reunion" { format!("{date}-{}", slugify(title, 50)) } else { slugify(title, 50) };
+        let name = file_name(title);
+        let stem = if kind == "reunion" { format!("{date} {name}") } else { name.clone() };
         let rel = self.vault.unique_path(&folder, &stem)?;
+        // le suffixe anti-doublon (« -2 ») fait partie du titre, pour rester identique au fichier
+        let file_stem = rel.rsplit('/').next().unwrap_or(&rel).trim_end_matches(".md");
+        let title = if kind == "reunion" { name.as_str() } else { file_stem };
         let template = self.template(if kind == "reunion" { "reunion" } else { "note" })?;
-        self.vault.write(&rel, &render(&template, &[("date", &date), ("title", title), ("type", kind)]), None, true)?;
+        let text = render(&template, &[("date", &date), ("title", title), ("type", kind)]);
+        self.vault.write(&rel, &with_title(&text, title), None, true)?;
         self.index.upsert(&rel)?;
         Ok(rel)
+    }
+}
+
+/// Nom de fichier tiré du titre : caractères interdits par Windows ou par les
+/// `[[wiki-links]]` remplacés par des espaces, espaces fusionnées, 100 caractères au plus.
+pub fn file_name(title: &str) -> String {
+    let cleaned: String =
+        title.chars().map(|c| if c.is_control() || r#"\/:*?"<>|#^[]"#.contains(c) { ' ' } else { c }).collect();
+    let joined = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cut: String = joined.chars().take(100).collect();
+    let cut = cut.trim_end_matches(['.', ' ']);
+    if cut.is_empty() { "note".into() } else { cut.into() }
+}
+
+/// Force le `title` du frontmatter et le premier titre de niveau 1, quel que soit le modèle.
+fn with_title(text: &str, title: &str) -> String {
+    let (mut meta, body) = split_frontmatter(text);
+    meta.insert("title".into(), Value::String(title.into()));
+    let heading = format!("# {title}");
+    let body = match H1_RE.find(body) {
+        Some(m) => format!("{}{heading}{}", &body[..m.start()], &body[m.end()..]),
+        None => format!("\n{heading}\n{}", body.trim_start_matches(['\r', '\n'])),
+    };
+    join_frontmatter(&meta, &body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_name_garde_le_titre() {
+        assert_eq!(file_name("Réunion d'équipe"), "Réunion d'équipe");
+        assert_eq!(file_name("  SAP / FI : clôture?  "), "SAP FI clôture");
+        assert_eq!(file_name("[[x]]."), "x");
+        assert_eq!(file_name("///"), "note");
+    }
+
+    #[test]
+    fn with_title_remplace_le_titre_du_modele() {
+        let text = "---\ntype: note\ntitle: Modèle de note\n---\n\n# Modèle de note\n\n## Suite\n";
+        assert_eq!(with_title(text, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\n\n## Suite\n");
+        let sans_titre = "---\ntype: note\n---\n\nTexte\n";
+        assert_eq!(with_title(sans_titre, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\nTexte\n");
     }
 }
