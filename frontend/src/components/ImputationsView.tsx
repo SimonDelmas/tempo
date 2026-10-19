@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Account, api, Config, Hours, ImputationWeek, Project, today } from "../api";
+import {
+  Account, ACCOUNT_CATEGORIES, AccountCategory, api, CATEGORY_LABELS, Config, groupAccounts, Hours, ImputationWeek,
+  Project, today,
+} from "../api";
 import { setLeaveGuard } from "../router";
 import ImputationPeriods from "./ImputationPeriods";
 
@@ -36,7 +39,8 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
   const [comment, setComment] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [newAccount, setNewAccount] = useState({ title: "", alias: "", days: "", description: "" });
+  const emptyAccount = { title: "", alias: "", categorie: "projet" as AccountCategory, days: "", description: "" };
+  const [newAccount, setNewAccount] = useState(emptyAccount);
 
   const loadRefs = () =>
     Promise.all([api.accounts(), api.projects()])
@@ -115,9 +119,9 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
 
   const createAccount = async () => {
     try {
-      await api.createAccount(newAccount.title, newAccount.alias, Number(newAccount.days.replace(",", ".")) || 0,
-        newAccount.description);
-      setNewAccount({ title: "", alias: "", days: "", description: "" });
+      await api.createAccount(newAccount.title, newAccount.alias, newAccount.categorie,
+        Number(newAccount.days.replace(",", ".")) || 0, newAccount.description);
+      setNewAccount({ ...emptyAccount, categorie: newAccount.categorie });
       notify("Compte créé");
       loadRefs();
     } catch (e) {
@@ -130,6 +134,15 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
     if (Number.isNaN(days) || days === account.days) return;
     try {
       await api.updateAccount(account.alias, { days });
+      loadRefs();
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+  };
+
+  const updateCategory = async (account: Account, categorie: AccountCategory) => {
+    try {
+      await api.updateAccount(account.alias, { categorie });
       loadRefs();
     } catch (e) {
       notify((e as Error).message, true);
@@ -155,12 +168,14 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
     }
   };
 
-  // comptes du tableau : ceux du vault + ceux déjà saisis (compte supprimé depuis)
-  const rows = useMemo(() => {
+  const groups = useMemo(() => groupAccounts(accounts), [accounts]);
+  // lignes du tableau par catégorie : comptes du vault, puis ceux déjà saisis (compte supprimé depuis)
+  const rowGroups = useMemo(() => {
     const known = accounts.map((a) => a.alias);
     const extra = [...new Set(Object.values(draft).flatMap((d) => Object.keys(d)))].filter((a) => !known.includes(a));
-    return [...known, ...extra];
-  }, [accounts, draft]);
+    const result = groups.map((g) => ({ label: g.label, aliases: g.accounts.map((a) => a.alias) }));
+    return extra.length ? [...result, { label: "Comptes inconnus", aliases: extra }] : result;
+  }, [accounts, groups, draft]);
   const accountOf = (alias: string) => accounts.find((a) => a.alias === alias);
 
   return (
@@ -192,33 +207,36 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
                 <th title="Jours restants sur le compte après cette semaine">Reste (j)</th>
               </tr>
             </thead>
-            <tbody>
-              {rows.map((alias) => {
-                const account = accountOf(alias);
-                const draftH = weekHours(draft, alias);
-                const remaining = account
-                  ? account.remaining_days + (weekHours(week?.hours ?? {}, alias) - draftH) / HOURS_PER_DAY
-                  : null;
-                return (
-                  <tr key={alias}>
-                    <th title={account ? [account.title, account.description].filter(Boolean).join("\n") : "Compte inconnu"}>
-                      <div>{alias}</div>
-                      <div className="muted small truncate">{account?.title ?? "compte inconnu"}</div>
-                    </th>
-                    {days.map((d) => (
-                      <td key={d} className={d === today() ? "today" : ""}>
-                        <input type="number" min={0} max={24} step={0.5} value={draft[d]?.[alias] || ""}
-                          onChange={(e) => setCell(d, alias, e.target.value)} onDoubleClick={() => fill(d, alias)} />
+            {rowGroups.map((g) => (
+              <tbody key={g.label}>
+                <tr className="group-row"><th colSpan={days.length + 3}>{g.label}</th></tr>
+                {g.aliases.map((alias) => {
+                  const account = accountOf(alias);
+                  const draftH = weekHours(draft, alias);
+                  const remaining = account
+                    ? account.remaining_days + (weekHours(week?.hours ?? {}, alias) - draftH) / HOURS_PER_DAY
+                    : null;
+                  return (
+                    <tr key={alias}>
+                      <th title={account ? [account.title, account.description].filter(Boolean).join("\n") : "Compte inconnu"}>
+                        <div>{alias}</div>
+                        <div className="muted small truncate">{account?.title ?? "compte inconnu"}</div>
+                      </th>
+                      {days.map((d) => (
+                        <td key={d} className={d === today() ? "today" : ""}>
+                          <input type="number" min={0} max={24} step={0.5} value={draft[d]?.[alias] || ""}
+                            onChange={(e) => setCell(d, alias, e.target.value)} onDoubleClick={() => fill(d, alias)} />
+                        </td>
+                      ))}
+                      <td className="num">{draftH ? fmt(draftH) : ""}</td>
+                      <td className={`num ${remaining !== null && remaining < 0 ? "overdue" : ""}`}>
+                        {remaining === null ? "–" : fmt(remaining)}
                       </td>
-                    ))}
-                    <td className="num">{draftH ? fmt(draftH) : ""}</td>
-                    <td className={`num ${remaining !== null && remaining < 0 ? "overdue" : ""}`}>
-                      {remaining === null ? "–" : fmt(remaining)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            ))}
             <tfoot>
               <tr>
                 <th>Total</th>
@@ -257,35 +275,47 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
         <h3>Comptes d'imputation</h3>
         <table className="data-table">
           <thead>
-            <tr><th>Alias</th><th>Nom et description</th><th>Attribués (j)</th><th>Consommés (j)</th><th>Restants (j)</th><th>Projets</th></tr>
+            <tr><th>Alias</th><th>Nom et description</th><th>Type</th><th>Attribués (j)</th><th>Consommés (j)</th><th>Restants (j)</th><th>Projets</th></tr>
           </thead>
-          <tbody>
-            {accounts.map((a) => (
-              <tr key={a.alias}>
-                <td><button className="link" onClick={() => onOpen(a.path)}>{a.alias}</button></td>
-                <td>
-                  <div>{a.title}</div>
-                  <input key={`${a.alias}-${a.description}`} className="description-input" defaultValue={a.description}
-                    placeholder="Ajouter une description…" onBlur={(e) => updateDescription(a, e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
-                </td>
-                <td>
-                  <input key={`${a.alias}-${a.days}`} className="days-input" type="number" min={0} step={0.5}
-                    defaultValue={a.days} onBlur={(e) => updateDays(a, e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
-                </td>
-                <td className="num">{fmt(a.consumed_days)}</td>
-                <td className={`num ${a.remaining_days < 0 ? "overdue" : ""}`}>{fmt(a.remaining_days)}</td>
-                <td>{a.projects.map((p) => <span key={p} className="tag">{p}</span>)}</td>
-              </tr>
-            ))}
-          </tbody>
+          {groups.map((g) => (
+            <tbody key={g.categorie}>
+              <tr className="group-row"><th colSpan={7}>{g.label}</th></tr>
+              {g.accounts.map((a) => (
+                <tr key={a.alias}>
+                  <td><button className="link" onClick={() => onOpen(a.path)}>{a.alias}</button></td>
+                  <td>
+                    <div>{a.title}</div>
+                    <input key={`${a.alias}-${a.description}`} className="description-input" defaultValue={a.description}
+                      placeholder="Ajouter une description…" onBlur={(e) => updateDescription(a, e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+                  </td>
+                  <td>
+                    <select value={a.categorie} onChange={(e) => updateCategory(a, e.target.value as AccountCategory)}>
+                      {ACCOUNT_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <input key={`${a.alias}-${a.days}`} className="days-input" type="number" min={0} step={0.5}
+                      defaultValue={a.days} onBlur={(e) => updateDays(a, e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+                  </td>
+                  <td className="num">{fmt(a.consumed_days)}</td>
+                  <td className={`num ${a.remaining_days < 0 ? "overdue" : ""}`}>{fmt(a.remaining_days)}</td>
+                  <td>{a.projects.map((p) => <span key={p} className="tag">{p}</span>)}</td>
+                </tr>
+              ))}
+            </tbody>
+          ))}
         </table>
         <div className="task-create account-create">
           <input placeholder="Nom du compte" value={newAccount.title}
             onChange={(e) => setNewAccount({ ...newAccount, title: e.target.value })} />
           <input placeholder="Alias (ex. SAP-MIG)" value={newAccount.alias}
             onChange={(e) => setNewAccount({ ...newAccount, alias: e.target.value })} />
+          <select value={newAccount.categorie} title="Type de compte"
+            onChange={(e) => setNewAccount({ ...newAccount, categorie: e.target.value as AccountCategory })}>
+            {ACCOUNT_CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+          </select>
           <input placeholder="Jours attribués" type="number" min={0} step={0.5} value={newAccount.days}
             onChange={(e) => setNewAccount({ ...newAccount, days: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && createAccount()} />
@@ -306,7 +336,11 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
                 <td>
                   <select value={p.compte ?? ""} onChange={(e) => linkProject(p, e.target.value)}>
                     <option value="">— aucun compte —</option>
-                    {accounts.map((a) => <option key={a.alias} value={a.alias}>{a.alias} · {a.title}</option>)}
+                    {groups.map((g) => (
+                      <optgroup key={g.categorie} label={g.label}>
+                        {g.accounts.map((a) => <option key={a.alias} value={a.alias}>{a.alias} · {a.title}</option>)}
+                      </optgroup>
+                    ))}
                   </select>
                 </td>
               </tr>

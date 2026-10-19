@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import { Account, api, NoteSummary, STATUS_LABELS, Task, today } from "../api";
+import { Account, api, groupAccounts, NoteSummary, STATUS_LABELS, Task, today } from "../api";
 import { Conversation } from "../chats";
 import { useProjects } from "./ProjectSelect";
 
@@ -144,15 +144,19 @@ export function ImputationsSidebar({ files, revision, current, week, onOpen, onW
     <aside className="sidebar">
       <div className="sidebar-title">Imputations</div>
       <Item active={!current && !week} onClick={() => onWeek(null)}>Semaine en cours</Item>
-      <Section title="Comptes">
-        {accounts.length === 0 && <p className="muted small">Aucun compte</p>}
-        {accounts.map((a) => (
-          <Item key={a.alias} active={a.path === current} onClick={() => onOpen(a.path)} title={[a.title, a.description].filter(Boolean).join("\n")}
-            extra={<span className={`count ${a.remaining_days < 0 ? "overdue" : ""}`}>{fmt(a.remaining_days)} j</span>}>
-            {a.alias}
-          </Item>
-        ))}
-      </Section>
+      {accounts.length === 0 && (
+        <Section title="Comptes"><p className="muted small">Aucun compte</p></Section>
+      )}
+      {groupAccounts(accounts).map((g) => (
+        <Section key={g.categorie} title={`Comptes · ${g.label}`}>
+          {g.accounts.map((a) => (
+            <Item key={a.alias} active={a.path === current} onClick={() => onOpen(a.path)} title={[a.title, a.description].filter(Boolean).join("\n")}
+              extra={<span className={`count ${a.remaining_days < 0 ? "overdue" : ""}`}>{fmt(a.remaining_days)} j</span>}>
+              {a.alias}
+            </Item>
+          ))}
+        </Section>
+      ))}
       <Section title="Semaines saisies">
         {weeks.length === 0 && <p className="muted small">Aucune</p>}
         {weeks.map((w) => (

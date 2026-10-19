@@ -93,8 +93,9 @@ http://localhost:5173.
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
-- **Imputations** : comptes d'imputation (nom, alias, jours attribués, description
-  facultative) dans `comptes/`, un projet est rattaché à un compte via `compte: <alias>` dans
+- **Imputations** : comptes d'imputation (nom, alias, type, jours attribués, description
+  facultative) dans `comptes/` ; le type (Projet, Interne ou Congés) classe les comptes dans la
+  barre latérale, la liste des comptes et la grille de saisie. Un projet est rattaché à un compte via `compte: <alias>` dans
   son frontmatter. Saisie par semaine (8 h = 1 jour, chaque jour ouvré doit totaliser 8 h),
   enregistrée dans `imputations/AAAA/AAAA-Sxx.md`. « Suivi des saisies » : renseignez la date
   jusqu'à laquelle vos imputations sont reportées dans l'outil de gestion des temps

@@ -35,18 +35,30 @@ fn accounts_and_project_link() {
     assert_eq!(accounts["SAP-MIG"].projects, vec!["sap"]);
     assert_eq!(c.index.resolve_link("SAP-MIG").unwrap().as_deref(), Some("comptes/sap-mig.md"));
 
-    let created = service.create_account("Formation", "FORM", 5.0, "Formations Rust et SAP").unwrap();
+    // sans catégorie dans le fichier : projet
+    assert_eq!(accounts["SAP-MIG"].categorie, "projet");
+    assert_eq!(accounts["TRANSVERSE"].categorie, "interne");
+
+    let created = service.create_account("Formation", "FORM", "interne", 5.0, "Formations Rust et SAP").unwrap();
     assert_eq!(created.remaining_days, 5.0);
-    assert!(c.vault.read_text(&created.path).unwrap().contains("\ndays: 5\n"));
-    assert!(matches!(service.create_account("Doublon", "form", 1.0, ""), Err(Error::Vault(_))));
-    assert!(matches!(service.create_account("Espace", "A B", 1.0, ""), Err(Error::Vault(_))));
+    assert_eq!(created.categorie, "interne");
+    assert!(c.vault.read_text(&created.path).unwrap().contains("\ncategorie: interne\ndays: 5\n"));
+    assert!(matches!(service.create_account("Doublon", "form", "", 1.0, ""), Err(Error::Vault(_))));
+    assert!(matches!(service.create_account("Espace", "A B", "", 1.0, ""), Err(Error::Vault(_))));
+    assert!(matches!(service.create_account("Vacances", "VAC", "repos", 1.0, ""), Err(Error::Vault(_))));
+    assert_eq!(service.create_account("Congés payés", "CP", "Congès", 25.0, "").unwrap().categorie, "conges");
+    // classés par catégorie puis par alias
+    let order: Vec<String> = service.accounts().unwrap().into_iter().map(|a| a.alias).collect();
+    assert_eq!(order, ["SAP-MIG", "FORM", "TRANSVERSE", "CP"]);
+    assert_eq!(service.update_account("FORM", None, Some("projet"), None, None).unwrap().categorie, "projet");
+    assert!(matches!(service.update_account("FORM", None, Some("autre"), None, None), Err(Error::Vault(_))));
 
     assert_eq!(created.description, "Formations Rust et SAP");
     assert!(c.vault.read_text(&created.path).unwrap().contains("\ndescription: Formations Rust et SAP\n"));
 
-    assert_eq!(service.update_account("FORM", None, Some(7.5), None).unwrap().days, 7.5);
-    assert_eq!(service.update_account("FORM", None, None, Some(" Plan de formation ")).unwrap().description, "Plan de formation");
-    let cleared = service.update_account("FORM", None, None, Some("")).unwrap();
+    assert_eq!(service.update_account("FORM", None, None, Some(7.5), None).unwrap().days, 7.5);
+    assert_eq!(service.update_account("FORM", None, None, None, Some(" Plan de formation ")).unwrap().description, "Plan de formation");
+    let cleared = service.update_account("FORM", None, None, None, Some("")).unwrap();
     assert_eq!(cleared.description, "");
     assert!(!c.vault.read_text(&cleared.path).unwrap().contains("description"));
     assert_eq!(service.set_project_account("sap", Some("FORM")).unwrap().compte.as_deref(), Some("FORM"));
@@ -189,6 +201,11 @@ async fn api() {
     let patched = app.call(Method::PATCH, "/api/accounts/FORM", Some(json!({"description": "Montée en compétence"}))).await;
     assert_eq!(patched.json()["description"], "Montée en compétence");
     assert_eq!(patched.json()["days"], 4.0);
+    assert_eq!(patched.json()["categorie"], "projet");
+    let patched = app.call(Method::PATCH, "/api/accounts/FORM", Some(json!({"categorie": "conges"}))).await;
+    assert_eq!(patched.json()["categorie"], "conges");
+    let invalid = app.call(Method::PATCH, "/api/accounts/FORM", Some(json!({"categorie": "autre"}))).await;
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
     let project = app.call(Method::PUT, "/api/projects/sap/account", Some(json!({"compte": "FORM"}))).await.json();
     assert_eq!(project["compte"], "FORM");
     let created = app.post("/api/projects", Some(json!({"title": "Refonte du portail"}))).await.json();

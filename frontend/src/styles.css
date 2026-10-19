@@ -249,6 +249,11 @@ input.full { width: 100%; }
 .account-create input:first-child { flex: 2; }
 .account-create .account-description { flex: 3; min-width: 220px; }
 .data-table .tag { margin-right: 4px; }
+/* intertitre de catégorie de compte (Projet, Interne, Congés) */
+.imputation-grid .group-row th, .data-table .group-row th {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+  background: var(--sidebar); padding-top: 8px;
+}
 .description-input { width: 100%; border-color: transparent; background: transparent; font-size: 12px; color: var(--muted); padding: 2px 4px; }
 .description-input:hover, .description-input:focus { border-color: var(--border); color: var(--text); }
 

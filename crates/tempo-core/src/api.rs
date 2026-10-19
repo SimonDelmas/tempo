@@ -162,6 +162,8 @@ struct AccountCreate {
     title: String,
     alias: String,
     #[serde(default)]
+    categorie: String,
+    #[serde(default)]
     days: f64,
     #[serde(default)]
     description: String,
@@ -170,6 +172,7 @@ struct AccountCreate {
 #[derive(Deserialize)]
 struct AccountPatch {
     title: Option<String>,
+    categorie: Option<String>,
     days: Option<f64>,
     description: Option<String>,
 }
@@ -474,12 +477,14 @@ async fn list_accounts(State(s): State<AppState>) -> ApiResult {
 }
 
 async fn create_account(State(s): State<AppState>, JsonBody(body): JsonBody<AccountCreate>) -> ApiResult {
-    blocking(move || s.imputations.create_account(&body.title, &body.alias, body.days, &body.description)).await
+    blocking(move || s.imputations.create_account(&body.title, &body.alias, &body.categorie, body.days, &body.description)).await
 }
 
 async fn update_account(State(s): State<AppState>, Path(alias): Path<String>, JsonBody(body): JsonBody<AccountPatch>) -> ApiResult {
-    blocking(move || s.imputations.update_account(&alias, body.title.as_deref(), body.days, body.description.as_deref()))
-        .await
+    blocking(move || {
+        s.imputations.update_account(&alias, body.title.as_deref(), body.categorie.as_deref(), body.days, body.description.as_deref())
+    })
+    .await
 }
 
 async fn list_projects(State(s): State<AppState>) -> ApiResult {

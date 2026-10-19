@@ -160,11 +160,14 @@ Compte (`comptes/sap-mig.md`) :
 type: compte
 title: Migration SAP S/4
 alias: SAP-MIG      # utilisable en [[SAP-MIG]]
+categorie: projet   # projet | interne | conges ; projet si absente
 days: 40            # jours attribués
 description: Reprise des articles pour la bascule S/4   # facultative
 ```
 
-La description est reprise dans le contexte de la proposition de répartition.
+La description et la catégorie sont reprises dans le contexte de la proposition de
+répartition. `GET /api/accounts` trie les comptes par catégorie (projet, interne, congés) puis
+par alias ; l'interface les regroupe par catégorie (barre latérale, liste, grille de saisie).
 
 Un projet est rattaché à un compte par `compte: SAP-MIG` dans son frontmatter.
 
@@ -230,4 +233,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
+- [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

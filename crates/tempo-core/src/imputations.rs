@@ -1,6 +1,7 @@
 //! Comptes d'imputation et saisie des heures (8 h = 1 jour) par semaine.
 //!
-//! - un compte = un fichier comptes/<alias>.md (nom, alias, jours attribués, description) ;
+//! - un compte = un fichier comptes/<alias>.md (nom, alias, catégorie, jours attribués,
+//!   description) ; la catégorie (`projet`, `interne` ou `conges`) classe les comptes ;
 //! - un projet est rattaché à un compte par `compte: <alias>` dans son frontmatter ;
 //! - les heures d'une semaine sont dans imputations/AAAA/AAAA-Sxx.md (frontmatter `hours`,
 //!   tableau régénéré dans le corps) ;
@@ -32,6 +33,8 @@ pub const HOURS_PER_DAY: f64 = 8.0;
 /// granularité des heures saisies
 const STEP: f64 = 0.5;
 const DAY_NAMES: [&str; 7] = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+/// Catégories de compte, dans l'ordre d'affichage ; `projet` si absente ou inconnue.
+pub const CATEGORIES: [&str; 3] = ["projet", "interne", "conges"];
 static ALIAS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$").unwrap());
 
 /// Heures par jour puis par compte : {date: {alias: heures}}.
@@ -52,6 +55,20 @@ fn round3(value: f64) -> f64 {
 /// Arrondi au pas de saisie (demi-heure).
 fn round_step(hours: f64) -> f64 {
     round2((hours / STEP).round_ties_even() * STEP)
+}
+
+/// Catégorie normalisée (minuscules, sans accents) ; erreur si elle n'est pas dans `CATEGORIES`.
+fn check_category(value: &str) -> Result<&'static str> {
+    let key = value.trim().to_lowercase().replace('è', "e");
+    CATEGORIES
+        .into_iter()
+        .find(|c| *c == key)
+        .ok_or_else(|| vault_err(format!("Catégorie invalide : {value} (projet, interne ou conges)")))
+}
+
+/// Rang d'affichage d'une catégorie (inconnue → `projet`).
+fn category_rank(category: &str) -> usize {
+    CATEGORIES.iter().position(|c| *c == category).unwrap_or(0)
 }
 
 fn check_number(value: f64, field: &str) -> Result<f64> {
@@ -138,6 +155,8 @@ fn hours_to_value(hours: &Hours) -> Value {
 pub struct Account {
     pub alias: String,
     pub title: String,
+    /// `projet`, `interne` ou `conges`
+    pub categorie: String,
     pub description: String,
     pub days: f64,
     pub consumed_days: f64,
@@ -302,6 +321,10 @@ impl ImputationService {
                         .map(|p| p.id.clone())
                         .collect(),
                     title: note.title,
+                    categorie: meta_str(&note.meta, "categorie")
+                        .and_then(|c| check_category(&c).ok())
+                        .unwrap_or(CATEGORIES[0])
+                        .to_string(),
                     description: meta_str(&note.meta, "description").unwrap_or_default(),
                     days,
                     consumed_days: round3(used),
@@ -311,7 +334,7 @@ impl ImputationService {
                 }
             })
             .collect();
-        result.sort_by_key(|a| a.alias.to_lowercase());
+        result.sort_by_key(|a| (category_rank(&a.categorie), a.alias.to_lowercase()));
         Ok(result)
     }
 
@@ -322,7 +345,8 @@ impl ImputationService {
             .ok_or_else(|| not_found(format!("Compte d'imputation introuvable : {alias}")))
     }
 
-    pub fn create_account(&self, title: &str, alias: &str, days: f64, description: &str) -> Result<Account> {
+    /// Catégorie vide → `projet`.
+    pub fn create_account(&self, title: &str, alias: &str, categorie: &str, days: f64, description: &str) -> Result<Account> {
         let (title, alias) = (title.trim(), alias.trim());
         if title.is_empty() {
             return Err(vault_err("Le nom du compte est obligatoire"));
@@ -333,9 +357,14 @@ impl ImputationService {
         if self.index.resolve_link(alias)?.is_some() {
             return Err(vault_err(format!("L'alias « {alias} » est déjà utilisé")));
         }
-        let mut meta: Meta = serde_json::from_value(
-            json!({"type": "compte", "title": title, "alias": alias, "days": number(check_number(days, "days")?)}),
-        )
+        let categorie = if categorie.trim().is_empty() { CATEGORIES[0] } else { check_category(categorie)? };
+        let mut meta: Meta = serde_json::from_value(json!({
+            "type": "compte",
+            "title": title,
+            "alias": alias,
+            "categorie": categorie,
+            "days": number(check_number(days, "days")?),
+        }))
         .unwrap();
         if !description.trim().is_empty() {
             meta.insert("description".into(), description.trim().into());
@@ -352,6 +381,7 @@ impl ImputationService {
         &self,
         alias: &str,
         title: Option<&str>,
+        categorie: Option<&str>,
         days: Option<f64>,
         description: Option<&str>,
     ) -> Result<Account> {
@@ -363,6 +393,9 @@ impl ImputationService {
                 return Err(vault_err("Le nom du compte est obligatoire"));
             }
             meta.insert("title".into(), title.trim().into());
+        }
+        if let Some(categorie) = categorie {
+            meta.insert("categorie".into(), check_category(categorie)?.into());
         }
         if let Some(days) = days {
             meta.insert("days".into(), number(check_number(days, "days")?));
@@ -655,9 +688,10 @@ impl ImputationService {
                 let description =
                     if a.description.is_empty() { String::new() } else { format!(" | description : {}", a.description) };
                 format!(
-                    "- {} — {}{description} | jours attribués : {} | consommés hors cette semaine : {} | restants avant cette semaine : {} | projets : {projects}",
+                    "- {} — {}{description} | catégorie : {} | jours attribués : {} | consommés hors cette semaine : {} | restants avant cette semaine : {} | projets : {projects}",
                     a.alias,
                     a.title,
+                    a.categorie,
                     fmt(a.days),
                     fmt(round2(used)),
                     fmt(round2(a.days - used)),

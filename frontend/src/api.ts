@@ -57,9 +57,15 @@ export type Proposal = {
   duplicate_of: string | null;
 };
 
+/** catégories de compte, dans l'ordre d'affichage (CATEGORIES dans imputations.rs) */
+export const ACCOUNT_CATEGORIES = ["projet", "interne", "conges"] as const;
+export type AccountCategory = (typeof ACCOUNT_CATEGORIES)[number];
+export const CATEGORY_LABELS: Record<AccountCategory, string> = { projet: "Projet", interne: "Interne", conges: "Congés" };
+
 export type Account = {
   alias: string;
   title: string;
+  categorie: AccountCategory;
   description: string;
   days: number;
   consumed_days: number;
@@ -171,9 +177,10 @@ export const api = {
   weeklyReport: (date: string, extra: string) =>
     request<{ path: string }>("POST", "/api/reports/weekly", { date, extra }),
   accounts: () => request<Account[]>("GET", "/api/accounts"),
-  createAccount: (title: string, alias: string, days: number, description: string) =>
-    request<Account>("POST", "/api/accounts", { title, alias, days, description }),
-  updateAccount: (alias: string, changes: { title?: string; days?: number; description?: string }) =>
+  createAccount: (title: string, alias: string, categorie: AccountCategory, days: number, description: string) =>
+    request<Account>("POST", "/api/accounts", { title, alias, categorie, days, description }),
+  updateAccount: (alias: string,
+    changes: { title?: string; categorie?: AccountCategory; days?: number; description?: string }) =>
     request<Account>("PATCH", `/api/accounts/${encodeURIComponent(alias)}`, changes),
   projects: () => request<Project[]>("GET", "/api/projects"),
   createProject: (title: string) => request<Project>("POST", "/api/projects", { title }),
@@ -228,7 +235,13 @@ export const TYPE_LABELS: Record<string, string> = {
   note: "Note",
 };
 
-export const today = () => new Date().toLocaleDateString("sv-SE");
+/** Comptes regroupés par catégorie (groupes vides omis), dans l'ordre de ACCOUNT_CATEGORIES. */
+export const groupAccounts = (accounts: Account[]) =>
+  ACCOUNT_CATEGORIES
+    .map((categorie) => ({ categorie, label: CATEGORY_LABELS[categorie], accounts: accounts.filter((a) => a.categorie === categorie) }))
+    .filter((g) => g.accounts.length > 0);
+
+export const today = () =>new Date().toLocaleDateString("sv-SE");
 
 /** Texte d'un rapport sans frontmatter ni citations [[…]], prêt à coller dans un mail. */
 export function toEmailText(markdown: string): string {
