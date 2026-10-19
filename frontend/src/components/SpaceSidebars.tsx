@@ -1,7 +1,8 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Account, api, NoteSummary, STATUS_LABELS, Task, today } from "../api";
+import { Conversation } from "../chats";
 
-/** Barres latérales des espaces Tâches, Rapports et Imputations (Notes : NotesSidebar). */
+/** Barres latérales des espaces Tâches, Rapports, Imputations et Chat (Notes : NotesSidebar). */
 
 function Item({ active, onClick, title, children, extra }: {
   active?: boolean; onClick: () => void; title?: string; children: ReactNode; extra?: ReactNode;
@@ -150,6 +151,36 @@ export function ImputationsSidebar({ files, revision, current, week, onOpen, onW
           <Item key={w.label} active={!current && week === w.start} onClick={() => onWeek(w.start)}>{w.label}</Item>
         ))}
       </Section>
+    </aside>
+  );
+}
+
+// --- Chat -----------------------------------------------------------------
+
+export function ChatSidebar({ chats, current, onSelect, onDelete }: {
+  chats: Conversation[];
+  current: string | null;
+  onSelect: (id: string | null) => void;
+  onDelete: (id: string) => void;
+}) {
+  const sorted = [...chats].sort((a, b) => b.updated.localeCompare(a.updated));
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-title">Chat</div>
+      <Item active={!current} onClick={() => onSelect(null)}>+ Nouvelle conversation</Item>
+      <Section title="Conversations">
+        {sorted.length === 0 && <p className="muted small">Aucune</p>}
+        {sorted.map((c) => (
+          <Item key={c.id} active={c.id === current} onClick={() => onSelect(c.id)} title={c.title}
+            extra={<span className="nav-delete" title="Supprimer" onClick={(e) => {
+              e.stopPropagation();
+              if (window.confirm(`Supprimer la conversation « ${c.title} » ?`)) onDelete(c.id);
+            }}>×</span>}>
+            {c.title}
+          </Item>
+        ))}
+      </Section>
+      <p className="muted small sidebar-note">Conversations conservées dans ce navigateur.</p>
     </aside>
   );
 }

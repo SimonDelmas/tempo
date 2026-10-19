@@ -28,6 +28,7 @@ en s'appuyant sur l'API LLM interne Vibe (compatible OpenAI).
    inbox.py    résumés mails/Teams → propositions → application
    reports.py  rapport hebdo (4 sections) et rapport d'avancement de tâche
    imputations.py  comptes d'imputation, heures par semaine, proposition de répartition
+   chat.py     agent en lecture seule : outils (recherche, notes, tâches), réponses citées
    llm.py      client OpenAI-compatible (Vibe), mode JSON
       │ REST /api
  Frontend React + Vite + CodeMirror 6 (frontend/)
@@ -127,4 +128,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [ ] Embeddings (sqlite-vec) : suggestions de liens, recherche sémantique
 - [ ] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer une sélection)
 - [ ] Aperçu en direct type Obsidian dans l'éditeur
-- [ ] Chat avec les notes (tool calling)
+- [x] Chat avec les notes en lecture seule (outils via le mode json)
+- [ ] Chat : actions d'écriture proposées puis validées, réponses en streaming

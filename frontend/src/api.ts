@@ -149,6 +149,8 @@ export const api = {
     request<{ hours: Hours; comment: string }>("POST", "/api/imputations/propose" + q({ date })),
   taskReport: (id: string) =>
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
+  chat: (messages: { role: "user" | "assistant"; content: string }[]) =>
+    request<ChatReply>("POST", "/api/chat", { messages }),
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -188,3 +190,6 @@ export function toEmailText(markdown: string): string {
     .replace(/\[\[([^\]]+)\]\]/g, "$1")
     .trim();
 }
+
+export type ChatStep = { tool: string; args: Record<string, unknown>; summary: string | null };
+export type ChatReply = { answer: string; steps: ChatStep[]; links: Record<string, string> };

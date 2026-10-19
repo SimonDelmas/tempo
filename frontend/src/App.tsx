@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
+import { ChatEntry, Conversation, loadChats, newConversation, saveChats } from "./chats";
+import ChatView from "./components/ChatView";
 import EditorPane from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
@@ -9,7 +11,7 @@ import QuickOpen from "./components/QuickOpen";
 import ReportsView from "./components/ReportsView";
 import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
-import { ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
+import { ChatSidebar, ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
 import TasksView from "./components/TasksView";
 import { href, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
@@ -33,6 +35,7 @@ export default function App() {
   const [imputationMissing, setImputationMissing] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [chats, setChats] = useState<Conversation[]>(loadChats);
   const lastRevision = useRef(-1);
   const lastRoutes = useRef(loadLastRoutes());
   const route = useRoute();
@@ -104,6 +107,18 @@ export default function App() {
     window.setTimeout(poll, 300);
   }, [poll, space]);
 
+  useEffect(() => saveChats(chats), [chats]);
+
+  const appendChat = useCallback((id: string | null, entry: ChatEntry) => {
+    const created = id ? null : newConversation(entry.content);
+    const target = id ?? created!.id;
+    setChats((prev) => (created ? [created, ...prev] : prev).map((c) => c.id === target
+      ? { ...c, updated: new Date().toISOString(), messages: [...c.messages, entry] }
+      : c));
+    if (created) navigate(href("chat", null, { c: created.id }));
+    return target;
+  }, []);
+
   if (!config) return <div className="loading">Chargement…</div>;
 
   const sidebar = {
@@ -114,6 +129,12 @@ export default function App() {
     imputations: <ImputationsSidebar files={files} revision={revision} current={path} week={params.date ?? null}
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
     inbox: null,
+    chat: <ChatSidebar chats={chats} current={params.c ?? null}
+      onSelect={(c) => navigate(href("chat", null, { c }))}
+      onDelete={(id) => {
+        setChats((prev) => prev.filter((c) => c.id !== id));
+        if (params.c === id) navigate(href("chat"));
+      }} />,
   }[space];
 
   const home = {
@@ -124,6 +145,8 @@ export default function App() {
     imputations: <ImputationsView config={config} revision={revision} date={params.date ?? null}
       onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
+    chat: <ChatView config={config} conversation={chats.find((c) => c.id === params.c) ?? null}
+      onAppend={appendChat} onOpen={open} />,
   }[space];
 
   const layout = [sidebar ? "with-sidebar" : "", path ? "with-right" : ""].join(" ");

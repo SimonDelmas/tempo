@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Espaces de l'application, chacun avec sa barre latérale et son adresse (#/taches/…). */
-export type Space = "notes" | "taches" | "rapports" | "imputations" | "inbox";
+export type Space = "notes" | "taches" | "rapports" | "imputations" | "inbox" | "chat";
 
 export const SPACES: { id: Space; label: string }[] = [
   { id: "notes", label: "Notes" },
@@ -9,6 +9,7 @@ export const SPACES: { id: Space; label: string }[] = [
   { id: "rapports", label: "Rapports" },
   { id: "imputations", label: "Imputations" },
   { id: "inbox", label: "Inbox" },
+  { id: "chat", label: "Chat" },
 ];
 
 export const DEFAULT_SPACE: Space = "taches";

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .chat import ChatMessage, ChatService
 from .config import PROJECT_ROOT, Settings, load_settings
 from .imputations import ImputationService
 from .inbox import InboxProposal, InboxService
@@ -76,6 +77,10 @@ class ProjectAccount(BaseModel):
     compte: str | None = None
 
 
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+
+
 class WeekHours(BaseModel):
     date: str
     hours: dict[str, dict[str, float]] = {}
@@ -91,6 +96,7 @@ class Services:
         self.journal = JournalService(self.vault, self.index)
         self.inbox = InboxService(self.vault, self.index, self.tasks, self.journal, llm, settings)
         self.reports = ReportService(self.vault, self.index, self.tasks, llm, settings)
+        self.chat = ChatService(self.vault, self.index, self.tasks, llm, settings)
         self.imputations = ImputationService(self.vault, self.index, self.reports, llm, settings)
 
 
@@ -288,6 +294,14 @@ def create_app(settings: Settings | None = None, llm: LLM | None = None) -> Fast
     @app.post("/api/imputations/propose")
     def propose_week(date: str | None = None):
         return s.imputations.propose(_day(date))
+
+    # --- chat ----------------------------------------------------------------
+
+    @app.post("/api/chat")
+    def chat(body: ChatRequest):
+        if not body.messages or body.messages[-1].role != "user":
+            raise VaultError("La conversation doit se terminer par un message de l'utilisateur")
+        return s.chat.ask(body.messages)
 
     if FRONTEND_DIST.is_dir():
         app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
