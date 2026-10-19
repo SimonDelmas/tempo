@@ -17,7 +17,28 @@ export type Task = {
   project: string | null;
   due: string | null;
   path: string;
+  /** position dans le backlog, null si jamais ordonnée */
+  rank: number | null;
+  /** semaines planifiées (2026-S43), de la plus ancienne à la plus récente */
+  iterations: string[];
+  /** dernière semaine planifiée */
+  iteration: string | null;
 };
+
+/** Board d'une semaine : tâches qui y ont été planifiées, avec leur statut actuel. */
+export type Board = {
+  week: string;
+  current: string;
+  start: string;
+  end: string;
+  previous: string;
+  next: string;
+  /** semaines ayant des tâches, plus la semaine courante */
+  weeks: string[];
+  tasks: Task[];
+};
+
+export type Backlog = { current: string; weeks: { label: string; start: string }[]; tasks: Task[] };
 
 export type Config = {
   vault: string;
@@ -167,6 +188,11 @@ export const api = {
     request<Task>("POST", "/api/tasks", task),
   updateTask: (id: string, changes: Record<string, string | null>, note?: string) =>
     request<Task>("PATCH", `/api/tasks/${encodeURIComponent(id)}`, { changes, note }),
+  backlog: () => request<Backlog>("GET", "/api/tasks/backlog"),
+  board: (week: string | null) => request<Board>("GET", "/api/tasks/board" + q({ week: week ?? "" })),
+  /** place la tâche dans le projet (null : sans projet), avant la tâche before (null : à la fin) */
+  moveTask: (id: string, project: string | null, before: string | null) =>
+    request<Task[]>("POST", `/api/tasks/${encodeURIComponent(id)}/move`, { project, before }),
   inbox: () => request<InboxItem[]>("GET", "/api/inbox"),
   inboxAdd: (text: string) => request<{ paths: string[] }>("POST", "/api/inbox", { text }),
   inboxAnalyze: (path: string) => request<Proposal>("POST", "/api/inbox/analyze" + q({ path })),

@@ -84,9 +84,19 @@ http://localhost:5173.
   ligne en cours, puces, cases à cocher cliquables). Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
   liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
   (ou de la note entière) ; le résultat est relu avant d'être inséré.
-- **Tâches** : kanban par statut (glisser-déposer), fiche de tâche avec statut / priorité /
-  échéance / projet, historique daté et bouton « Rapport d'avancement ». Le projet se choisit
-  dans la liste des notes de `projets/` ; le bouton « + » crée la note d'un nouveau projet.
+- **Tâches** : deux onglets inspirés d'Azure DevOps.
+  - **Backlog** : les tâches regroupées par projet (les projets tiennent lieu de features),
+    ordonnées par glisser-déposer ; déposer une tâche sous un autre projet la rattache à ce
+    projet. La colonne Itération planifie une tâche sur une semaine (courante ou suivantes).
+  - **Board** : kanban par statut (glisser-déposer) d'une semaine, la semaine courante par
+    défaut ; flèches et liste pour afficher les autres semaines. Une tâche créée depuis le board
+    est planifiée sur la semaine affichée. Au changement de semaine, les tâches non terminées
+    basculent dans la semaine courante (« reportée ») et restent visibles sur le board de la
+    semaine quittée.
+
+  Fiche de tâche avec statut / priorité / échéance / projet, historique daté et bouton
+  « Rapport d'avancement ». Le projet se choisit dans la liste des notes de `projets/` ; le
+  bouton « + » crée la note d'un nouveau projet.
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers
   dans `00-inbox/`, « Analyser avec l'IA », ajuster la proposition, « Appliquer ».
   Appliquer ou ignorer un entrant passe au suivant ; l'échange est ouvert une fois l'inbox vidée.

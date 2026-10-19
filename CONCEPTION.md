@@ -30,7 +30,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    config.rs   paramètres lus dans l'environnement et les fichiers .env
    vault.rs    lecture/écriture, frontmatter YAML (style PyYAML), conflits (hash), corbeille .trash/
    index.rs    index SQLite (rusqlite) : notes, liens, recherche FTS5, watcher
-   tasks.rs    tâches = fichiers taches/T-XXX-*.md, historique
+   tasks.rs    tâches = fichiers taches/T-XXX-*.md, historique, backlog (rang) et itérations hebdo
    journal.rs  notes quotidiennes et modèles
    inbox.rs    résumés mails/Teams → propositions → application
    reports.rs  rapport hebdo (4 sections) et rapport d'avancement de tâche
@@ -107,6 +107,8 @@ status: en_cours      # a_faire | en_cours | attente | bloquee | terminee
 priority: haute       # basse | normale | haute
 project: sap
 due: 2026-10-24
+rank: 3000            # ordre dans le backlog (facultatif)
+iterations: [2026-S42, 2026-S43]   # semaines planifiées (facultatif)
 ```
 
 avec une section `## Historique` (`- AAAA-MM-JJ : texte`) alimentée par l'application ;
@@ -116,6 +118,27 @@ c'est elle qui permet de savoir ce qui a évolué sur une période.
 listes de projets de l'interface viennent de `GET /api/projects`, et `POST /api/projects`
 (`{title}`) crée `projets/<slug>.md` (`type: projet`, `title`). Un identifiant sans note reste
 accepté et s'affiche « sans note ».
+
+### Backlog et board hebdomadaire
+
+Inspiré d'Azure DevOps : le **backlog** regroupe les tâches par projet (le projet tient lieu
+de feature) et le **board** montre les tâches d'une itération d'une semaine (`2026-S43`,
+semaine ISO du lundi au dimanche, même libellé que les imputations).
+
+- `rank` (entier, croissant) ordonne le backlog ; une tâche sans rang vient après les autres,
+  par identifiant. `POST /api/tasks/{id}/move` (`{project, before}`) place la tâche avant
+  `before` (à la fin sans) dans le projet `project` (`null` : sans projet) : rang médian
+  entre les voisins, ou renumérotation du projet par pas de 1000 quand il n'y a plus de place.
+  Un changement de projet est tracé dans l'historique.
+- `iterations` liste les semaines où la tâche a été planifiée ; la dernière est la semaine
+  courante de planification (`iteration` dans l'API). `PATCH /api/tasks/{id}` avec
+  `changes.iteration` (semaine ou `null`) remplace les semaines courantes ou futures et garde
+  les semaines passées ; `POST /api/tasks` accepte `iteration`. Historique : « planifiée en
+  2026-S44 », « retirée de l'itération 2026-S44 ».
+- **Report** : à chaque lecture du backlog ou d'un board (`GET /api/tasks/backlog`,
+  `GET /api/tasks/board?week=`), les tâches non terminées dont la dernière semaine est passée
+  reçoivent la semaine courante en plus (« reportée de 2026-S42 en 2026-S43 »). Le board d'une
+  semaine passée montre donc tout ce qui y était planifié, avec le statut actuel.
 
 ## Flux Inbox (mails / Teams)
 
@@ -254,4 +277,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
 - [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
+- [x] Tâches en backlog (ordre par glisser-déposer, projets comme features) et board par itération hebdomadaire avec report automatique
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

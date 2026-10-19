@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Account, api, groupAccounts, NoteSummary, STATUS_LABELS, Task, today } from "../api";
 import { Conversation } from "../chats";
 import { useProjects } from "./ProjectSelect";
+import type { TasksTab } from "./TasksView";
 
 /** Barres latérales des espaces Tâches, Rapports, Imputations et Chat (Notes : NotesSidebar). */
 
@@ -26,12 +27,13 @@ const fmt = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
 
 // --- Tâches ---------------------------------------------------------------
 
-export function TasksSidebar({ revision, current, project, onOpen, onBoard }: {
+export function TasksSidebar({ revision, current, tab, project, onOpen, onNavigate }: {
   revision: number;
   current: string | null;
+  tab: TasksTab;
   project: string | null;
   onOpen: (path: string) => void;
-  onBoard: (project: string | null) => void;
+  onNavigate: (params: { vue?: TasksTab; semaine?: string | null; projet?: string | null }) => void;
 }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   useEffect(() => { api.tasks().then(setTasks).catch(() => {}); }, [revision]);
@@ -62,12 +64,15 @@ export function TasksSidebar({ revision, current, project, onOpen, onBoard }: {
   return (
     <aside className="sidebar">
       <div className="sidebar-title">Tâches</div>
-      <Item active={!current && !project} onClick={() => onBoard(null)}
-        extra={<span className="count">{open.length}</span>}>Tableau</Item>
+      <Item active={!current && tab === "backlog"} onClick={() => onNavigate({ vue: "backlog" })}
+        extra={<span className="count">{open.length}</span>}>Backlog</Item>
+      <Item active={!current && tab === "board"} onClick={() => onNavigate({ vue: "board", semaine: null })}>
+        Board de la semaine
+      </Item>
       <Section title="Projets">
         {projects.length === 0 && <p className="muted small">Aucun projet</p>}
         {projects.map(([p, title, n]) => (
-          <Item key={p} active={!current && project === p} onClick={() => onBoard(p)}
+          <Item key={p} active={!current && project === p} onClick={() => onNavigate({ projet: project === p ? null : p })}
             extra={<span className="count">{n}</span>}>{title}</Item>
         ))}
       </Section>

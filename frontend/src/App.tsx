@@ -13,7 +13,7 @@ import ReportsView from "./components/ReportsView";
 import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
 import { ChatSidebar, ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
-import TasksView from "./components/TasksView";
+import TasksView, { TasksTab } from "./components/TasksView";
 import { goBack, goForward, href, matchShortcut, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
 type Toast = { id: number; message: string; error: boolean };
@@ -155,11 +155,16 @@ export default function App() {
 
   if (!config) return <div className="loading">Chargement…</div>;
 
+  /** espace Tâches : onglet, semaine du board et filtre projet portés par l'adresse */
+  const tasksTab: TasksTab = params.vue === "backlog" ? "backlog" : "board";
+  const tasksNav = (changes: { vue?: TasksTab; semaine?: string | null; projet?: string | null }) =>
+    navigate(href("taches", null, { vue: params.vue, semaine: params.semaine, projet: params.projet, ...changes }));
+
   const sidebar = {
     notes: <NotesSidebar files={files} current={path} semantic={config.semantic_enabled} onOpen={open}
       notify={notify} />,
-    taches: <TasksSidebar revision={revision} current={path} project={params.projet ?? null} onOpen={open}
-      onBoard={(projet) => navigate(href("taches", null, { projet }))} />,
+    taches: <TasksSidebar revision={revision} current={path} tab={tasksTab} project={params.projet ?? null}
+      onOpen={open} onNavigate={tasksNav} />,
     rapports: <ReportsSidebar files={files} current={path} onOpen={open} onHome={() => navigate(href("rapports"))} />,
     imputations: <ImputationsSidebar files={files} revision={revision} current={path} week={params.date ?? null}
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
@@ -175,8 +180,8 @@ export default function App() {
 
   const home = {
     notes: <NotesHome files={files} onOpen={open} />,
-    taches: <TasksView config={config} revision={revision} project={params.projet ?? ""}
-      onProject={(projet) => navigate(href("taches", null, { projet }))} onOpen={open} notify={notify} />,
+    taches: <TasksView config={config} revision={revision} tab={tasksTab} week={params.semaine ?? ""}
+      project={params.projet ?? ""} onNavigate={tasksNav} onOpen={open} notify={notify} />,
     rapports: <ReportsView config={config} onOpen={open} notify={notify} />,
     imputations: <ImputationsView config={config} revision={revision} date={params.date ?? null}
       onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,

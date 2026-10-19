@@ -131,6 +131,8 @@ struct TaskCreate {
     description: String,
     /// note d'origine, tracée dans l'historique de la tâche
     origin: Option<String>,
+    /// semaine où planifier la tâche dès sa création (`2026-S43`)
+    iteration: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,6 +140,19 @@ struct TaskPatch {
     #[serde(default)]
     changes: Map<String, Value>,
     note: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct WeekParam {
+    week: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TaskMove {
+    /// projet (feature) de destination, vide ou absent pour « sans projet »
+    project: Option<String>,
+    /// tâche devant laquelle se placer, absente pour la fin du projet
+    before: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -257,7 +272,10 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/links", get(links))
         // tâches
         .route("/api/tasks", get(list_tasks).post(create_task))
+        .route("/api/tasks/backlog", get(task_backlog))
+        .route("/api/tasks/board", get(task_board))
         .route("/api/tasks/{task_id}", get(get_task).patch(update_task))
+        .route("/api/tasks/{task_id}/move", post(move_task))
         // inbox
         .route("/api/inbox", get(inbox_list).post(inbox_add).delete(inbox_discard))
         .route("/api/inbox/analyze", post(inbox_analyze))
@@ -447,13 +465,43 @@ async fn create_task(State(s): State<AppState>, JsonBody(body): JsonBody<TaskCre
             description: body.description,
             origin: body.origin,
         };
-        s.tasks.create(new, None)
+        let task = s.tasks.create(new, None)?;
+        match body.iteration.filter(|w| !w.is_empty()) {
+            Some(week) => {
+                let mut changes = Map::new();
+                changes.insert("iteration".into(), week.into());
+                s.tasks.update(&task.task.id, &changes, None, None)
+            }
+            None => Ok(task),
+        }
     })
     .await
 }
 
 async fn update_task(State(s): State<AppState>, Path(task_id): Path<String>, JsonBody(body): JsonBody<TaskPatch>) -> ApiResult {
     blocking(move || s.tasks.update(&task_id, &body.changes, body.note.as_deref(), None)).await
+}
+
+/// Backlog ordonné ; reporte d'abord les tâches non terminées des semaines passées.
+async fn task_backlog(State(s): State<AppState>) -> ApiResult {
+    blocking(move || {
+        s.tasks.roll_over(None)?;
+        s.tasks.backlog(None)
+    })
+    .await
+}
+
+/// Board d'une semaine ; reporte d'abord les tâches non terminées des semaines passées.
+async fn task_board(State(s): State<AppState>, Query(q): Query<WeekParam>) -> ApiResult {
+    blocking(move || {
+        s.tasks.roll_over(None)?;
+        s.tasks.board(q.week.as_deref(), None)
+    })
+    .await
+}
+
+async fn move_task(State(s): State<AppState>, Path(task_id): Path<String>, JsonBody(body): JsonBody<TaskMove>) -> ApiResult {
+    blocking(move || s.tasks.move_task(&task_id, body.project.as_deref(), body.before.as_deref())).await
 }
 
 // --- inbox ---------------------------------------------------------------------
