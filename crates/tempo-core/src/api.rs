@@ -163,12 +163,20 @@ struct AccountCreate {
     alias: String,
     #[serde(default)]
     days: f64,
+    #[serde(default)]
+    description: String,
 }
 
 #[derive(Deserialize)]
 struct AccountPatch {
     title: Option<String>,
     days: Option<f64>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SaisieDate {
+    date: String,
 }
 
 #[derive(Deserialize)]
@@ -235,6 +243,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/projects/{project_id}/account", put(set_project_account))
         .route("/api/imputations", get(get_week).put(save_week))
         .route("/api/imputations/propose", post(propose_week))
+        .route("/api/imputations/saisies", get(get_tracking).post(add_saisie).delete(remove_saisie))
         // recherche sémantique
         .route("/api/semantic/status", get(semantic_status))
         .route("/api/semantic/sync", post(semantic_sync))
@@ -315,7 +324,7 @@ async fn get_config(State(s): State<AppState>) -> ApiResult {
 async fn get_state(State(s): State<AppState>) -> ApiResult {
     blocking(move || {
         Ok(json!({"revision": s.index.revision(), "inbox": s.inbox.list()?.len(),
-                  "imputation_missing": s.imputations.incomplete_days(today())?.len()}))
+                  "imputation_missing": s.imputations.missing_days(today())?}))
     })
     .await
 }
@@ -459,11 +468,12 @@ async fn list_accounts(State(s): State<AppState>) -> ApiResult {
 }
 
 async fn create_account(State(s): State<AppState>, JsonBody(body): JsonBody<AccountCreate>) -> ApiResult {
-    blocking(move || s.imputations.create_account(&body.title, &body.alias, body.days)).await
+    blocking(move || s.imputations.create_account(&body.title, &body.alias, body.days, &body.description)).await
 }
 
 async fn update_account(State(s): State<AppState>, Path(alias): Path<String>, JsonBody(body): JsonBody<AccountPatch>) -> ApiResult {
-    blocking(move || s.imputations.update_account(&alias, body.title.as_deref(), body.days)).await
+    blocking(move || s.imputations.update_account(&alias, body.title.as_deref(), body.days, body.description.as_deref()))
+        .await
 }
 
 async fn list_projects(State(s): State<AppState>) -> ApiResult {
@@ -488,6 +498,18 @@ async fn save_week(State(s): State<AppState>, JsonBody(body): JsonBody<WeekHours
 
 async fn propose_week(State(s): State<AppState>, Query(q): Query<DateParam>) -> ApiResult {
     blocking(move || s.imputations.propose(date_or_today(q.date.as_deref())?)).await
+}
+
+async fn get_tracking(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.imputations.tracking(today())).await
+}
+
+async fn add_saisie(State(s): State<AppState>, JsonBody(body): JsonBody<SaisieDate>) -> ApiResult {
+    blocking(move || s.imputations.add_saisie(parse_date(&body.date)?, today())).await
+}
+
+async fn remove_saisie(State(s): State<AppState>, Query(q): Query<SaisieDate>) -> ApiResult {
+    blocking(move || s.imputations.remove_saisie(parse_date(&q.date)?, today())).await
 }
 
 // --- recherche sémantique ------------------------------------------------------

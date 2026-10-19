@@ -58,6 +58,7 @@ export type Proposal = {
 export type Account = {
   alias: string;
   title: string;
+  description: string;
   days: number;
   consumed_days: number;
   remaining_days: number;
@@ -78,6 +79,27 @@ export type ImputationWeek = {
   hours: Hours;
   totals: Record<string, number>;
   comment: string;
+  path: string | null;
+};
+
+/** période entre deux dates de saisie ; open : depuis la dernière saisie jusqu'à aujourd'hui */
+export type ImputationPeriod = {
+  start: string;
+  end: string;
+  open: boolean;
+  workdays: number;
+  complete_days: number;
+  complete: boolean;
+  total_hours: number;
+  expected_hours: number;
+  accounts: { alias: string; title: string; hours: number; days: number; share: number }[];
+  incomplete_weeks: { week: string; start: string; days: string[]; missing_hours: number; extra_hours: number }[];
+};
+
+export type ImputationTracking = {
+  saisies: string[];
+  last_saisie: string | null;
+  periods: ImputationPeriod[];
   path: string | null;
 };
 
@@ -147,9 +169,9 @@ export const api = {
   weeklyReport: (date: string, extra: string) =>
     request<{ path: string }>("POST", "/api/reports/weekly", { date, extra }),
   accounts: () => request<Account[]>("GET", "/api/accounts"),
-  createAccount: (title: string, alias: string, days: number) =>
-    request<Account>("POST", "/api/accounts", { title, alias, days }),
-  updateAccount: (alias: string, changes: { title?: string; days?: number }) =>
+  createAccount: (title: string, alias: string, days: number, description: string) =>
+    request<Account>("POST", "/api/accounts", { title, alias, days, description }),
+  updateAccount: (alias: string, changes: { title?: string; days?: number; description?: string }) =>
     request<Account>("PATCH", `/api/accounts/${encodeURIComponent(alias)}`, changes),
   projects: () => request<Project[]>("GET", "/api/projects"),
   setProjectAccount: (id: string, compte: string | null) =>
@@ -159,6 +181,9 @@ export const api = {
     request<ImputationWeek>("PUT", "/api/imputations", { date, hours, comment }),
   proposeImputations: (date: string) =>
     request<{ hours: Hours; comment: string }>("POST", "/api/imputations/propose" + q({ date })),
+  imputationTracking: () => request<ImputationTracking>("GET", "/api/imputations/saisies"),
+  addSaisie: (date: string) => request<ImputationTracking>("POST", "/api/imputations/saisies", { date }),
+  removeSaisie: (date: string) => request<ImputationTracking>("DELETE", "/api/imputations/saisies" + q({ date })),
   taskReport: (id: string) =>
     request<{ path: string }>("POST", `/api/reports/task/${encodeURIComponent(id)}`),
   chat: (messages: ChatHistory) => request<ChatReply>("POST", "/api/chat", { messages }),

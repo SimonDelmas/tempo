@@ -238,7 +238,33 @@ input.full { width: 100%; }
 .block-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); margin: 8px 0; }
 .block-label textarea { color: var(--text); font-size: 14px; }
 .account-create input:first-child { flex: 2; }
+.account-create .account-description { flex: 3; min-width: 220px; }
 .data-table .tag { margin-right: 4px; }
+.description-input { width: 100%; border-color: transparent; background: transparent; font-size: 12px; color: var(--muted); padding: 2px 4px; }
+.description-input:hover, .description-input:focus { border-color: var(--border); color: var(--text); }
+
+/* suivi des saisies : périodes, indicateurs, semaines à compléter */
+.periods h3 { margin: 0; }
+.periods h4 { margin: 16px 0 6px; }
+.saisies { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.tag-remove { margin-left: 4px; cursor: pointer; opacity: .6; }
+.tag-remove:hover { opacity: 1; color: var(--danger); }
+.period-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.period-tab { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.period-tab.active { border-color: var(--accent); background: var(--accent-soft); }
+.period-tab .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+.period-tab.ok .dot { background: #3f8a4f; }
+.stat-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.stat-tile { border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.stat-tile.ok { border-left-color: #3f8a4f; }
+.stat-tile.ko { border-left-color: var(--danger); }
+.stat-label { font-size: 12px; color: var(--muted); }
+.stat-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.gap-list { list-style: none; padding: 0; margin: 0; }
+.gap-list li { display: flex; gap: 10px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.share { display: flex; align-items: center; gap: 8px; min-width: 160px; }
+.share-bar { flex: 1; height: 6px; border-radius: 3px; background: var(--accent-soft); overflow: hidden; }
+.share-bar span { display: block; height: 100%; background: var(--accent); }
 
 @media (max-width: 900px) {
   .app { display: flex; flex-direction: column; }

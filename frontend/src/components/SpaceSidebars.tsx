@@ -139,7 +139,7 @@ export function ImputationsSidebar({ files, revision, current, week, onOpen, onW
       <Section title="Comptes">
         {accounts.length === 0 && <p className="muted small">Aucun compte</p>}
         {accounts.map((a) => (
-          <Item key={a.alias} active={a.path === current} onClick={() => onOpen(a.path)} title={a.title}
+          <Item key={a.alias} active={a.path === current} onClick={() => onOpen(a.path)} title={[a.title, a.description].filter(Boolean).join("\n")}
             extra={<span className={`count ${a.remaining_days < 0 ? "overdue" : ""}`}>{fmt(a.remaining_days)} j</span>}>
             {a.alias}
           </Item>

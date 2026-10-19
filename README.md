@@ -86,11 +86,15 @@ http://localhost:5173.
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
-- **Imputations** : comptes d'imputation (nom, alias, jours attribués) dans `comptes/`, un
-  projet est rattaché à un compte via `compte: <alias>` dans son frontmatter. Saisie par
-  semaine (8 h = 1 jour, chaque jour ouvré doit totaliser 8 h ; le compteur de la barre
-  latérale indique les jours incomplets de la semaine en cours), enregistrée dans
-  `imputations/AAAA/AAAA-Sxx.md`. « Proposer une répartition (IA) » s'appuie sur le rapport
+- **Imputations** : comptes d'imputation (nom, alias, jours attribués, description
+  facultative) dans `comptes/`, un projet est rattaché à un compte via `compte: <alias>` dans
+  son frontmatter. Saisie par semaine (8 h = 1 jour, chaque jour ouvré doit totaliser 8 h),
+  enregistrée dans `imputations/AAAA/AAAA-Sxx.md`. « Suivi des saisies » : renseignez la date
+  jusqu'à laquelle vos imputations sont reportées dans l'outil de gestion des temps
+  (`imputations/saisies.md`) ; ces dates découpent des périodes, et pour chacune Tempo affiche
+  le bilan par compte (heures, jours, part), la complétude et les semaines à compléter (un
+  clic ouvre la semaine). Le compteur de l'espace indique les jours incomplets depuis la
+  dernière saisie (à défaut, dans la semaine en cours). « Proposer une répartition (IA) » s'appuie sur le rapport
   hebdomadaire de la semaine et sur les jours restants de chaque compte.
 
 ## Tests

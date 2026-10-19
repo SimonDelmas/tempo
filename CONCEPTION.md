@@ -34,7 +34,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    journal.rs  notes quotidiennes et modèles
    inbox.rs    résumés mails/Teams → propositions → application
    reports.rs  rapport hebdo (4 sections) et rapport d'avancement de tâche
-   imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition
+   imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition, périodes de saisie
    semantic.rs embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
    chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
@@ -75,6 +75,7 @@ rapports/hebdo/      AAAA-Sxx.md
 rapports/taches/     T-XXX-AAAA-MM-JJ.md
 comptes/             <alias>.md (comptes d'imputation)
 imputations/AAAA/    AAAA-Sxx.md (heures saisies par jour et par compte)
+imputations/saisies.md  dates de dernière saisie dans l'outil de gestion des temps
 _templates/          journal.md, reunion.md, note.md
 .tempo/              index.db (index), vectors.db (embeddings) : caches reconstructibles
 .trash/              notes supprimées depuis l'application (horodatées, récupérables)
@@ -144,7 +145,10 @@ type: compte
 title: Migration SAP S/4
 alias: SAP-MIG      # utilisable en [[SAP-MIG]]
 days: 40            # jours attribués
+description: Reprise des articles pour la bascule S/4   # facultative
 ```
+
+La description est reprise dans le contexte de la proposition de répartition.
 
 Un projet est rattaché à un compte par `compte: SAP-MIG` dans son frontmatter.
 
@@ -157,6 +161,17 @@ Proposition de répartition : contexte = comptes (attribués, consommés, restan
 rattachés, heures déjà saisies, rapport hebdomadaire de la semaine (à défaut, le contexte
 du rapport hebdo). Le LLM répond en JSON ; les alias inconnus sont écartés, chaque jour est
 arrondi à 0,5 h et ramené à 8 h. La proposition n'est enregistrée qu'après validation.
+
+Saisies (`imputations/saisies.md`) : frontmatter `type: saisies-imputation` et
+`dates: [2026-10-04, 2026-10-11]` (dates jusqu'auxquelles les imputations ont été reportées
+dans l'outil de gestion des temps) ; le corps (liste des dates) est régénéré. La première date
+marque le début du suivi, chaque date suivante clôt la période commencée le lendemain de la
+précédente ; la période ouverte va du lendemain de la dernière date à aujourd'hui. Pour
+chaque période (`GET /api/imputations/saisies`) : bilan des heures par compte (jours, part),
+complétude (jours ouvrés à 8 h) et semaines incomplètes (jours, heures manquantes ou en
+trop). Le compteur de l'espace Imputations compte les jours incomplets de la période ouverte
+(sans saisie : ceux de la semaine en cours). Les jours fériés et absences ne sont pas encore
+distingués : les imputer sur un compte dédié.
 
 ## Actions IA de l'éditeur
 
@@ -196,3 +211,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
+- [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
+- [ ] Imputations : jours fériés et absences pris en compte dans la complétude

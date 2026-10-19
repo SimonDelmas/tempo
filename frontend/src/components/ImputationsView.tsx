@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Account, api, Config, Hours, ImputationWeek, Project, today } from "../api";
 import { setLeaveGuard } from "../router";
+import ImputationPeriods from "./ImputationPeriods";
 
 type Props = {
   config: Config;
@@ -35,7 +36,7 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
   const [comment, setComment] = useState("");
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [newAccount, setNewAccount] = useState({ title: "", alias: "", days: "" });
+  const [newAccount, setNewAccount] = useState({ title: "", alias: "", days: "", description: "" });
 
   const loadRefs = () =>
     Promise.all([api.accounts(), api.projects()])
@@ -114,8 +115,9 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
 
   const createAccount = async () => {
     try {
-      await api.createAccount(newAccount.title, newAccount.alias, Number(newAccount.days.replace(",", ".")) || 0);
-      setNewAccount({ title: "", alias: "", days: "" });
+      await api.createAccount(newAccount.title, newAccount.alias, Number(newAccount.days.replace(",", ".")) || 0,
+        newAccount.description);
+      setNewAccount({ title: "", alias: "", days: "", description: "" });
       notify("Compte créé");
       loadRefs();
     } catch (e) {
@@ -128,6 +130,16 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
     if (Number.isNaN(days) || days === account.days) return;
     try {
       await api.updateAccount(account.alias, { days });
+      loadRefs();
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+  };
+
+  const updateDescription = async (account: Account, value: string) => {
+    if (value.trim() === account.description) return;
+    try {
+      await api.updateAccount(account.alias, { description: value });
       loadRefs();
     } catch (e) {
       notify((e as Error).message, true);
@@ -161,6 +173,8 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
         <button className="ghost" onClick={() => changeWeek(0)}>Cette semaine</button>
       </header>
 
+      <ImputationPeriods revision={revision} onWeek={(d) => onDate(d)} onOpen={onOpen} notify={notify} />
+
       <section className="panel wide-panel">
         <p className="muted small">
           Chaque jour ouvré doit totaliser {HOURS_PER_DAY} h (= 1 jour). Double-clic sur une case : compléter la
@@ -187,7 +201,7 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
                   : null;
                 return (
                   <tr key={alias}>
-                    <th title={account?.title ?? "Compte inconnu"}>
+                    <th title={account ? [account.title, account.description].filter(Boolean).join("\n") : "Compte inconnu"}>
                       <div>{alias}</div>
                       <div className="muted small truncate">{account?.title ?? "compte inconnu"}</div>
                     </th>
@@ -243,13 +257,18 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
         <h3>Comptes d'imputation</h3>
         <table className="data-table">
           <thead>
-            <tr><th>Alias</th><th>Nom</th><th>Attribués (j)</th><th>Consommés (j)</th><th>Restants (j)</th><th>Projets</th></tr>
+            <tr><th>Alias</th><th>Nom et description</th><th>Attribués (j)</th><th>Consommés (j)</th><th>Restants (j)</th><th>Projets</th></tr>
           </thead>
           <tbody>
             {accounts.map((a) => (
               <tr key={a.alias}>
                 <td><button className="link" onClick={() => onOpen(a.path)}>{a.alias}</button></td>
-                <td>{a.title}</td>
+                <td>
+                  <div>{a.title}</div>
+                  <input key={`${a.alias}-${a.description}`} className="description-input" defaultValue={a.description}
+                    placeholder="Ajouter une description…" onBlur={(e) => updateDescription(a, e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} />
+                </td>
                 <td>
                   <input key={`${a.alias}-${a.days}`} className="days-input" type="number" min={0} step={0.5}
                     defaultValue={a.days} onBlur={(e) => updateDays(a, e.target.value)}
@@ -269,6 +288,9 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
             onChange={(e) => setNewAccount({ ...newAccount, alias: e.target.value })} />
           <input placeholder="Jours attribués" type="number" min={0} step={0.5} value={newAccount.days}
             onChange={(e) => setNewAccount({ ...newAccount, days: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && createAccount()} />
+          <input className="account-description" placeholder="Description (facultative)" value={newAccount.description}
+            onChange={(e) => setNewAccount({ ...newAccount, description: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && createAccount()} />
           <button className="primary" onClick={createAccount}>Ajouter</button>
         </div>

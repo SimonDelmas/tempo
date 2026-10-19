@@ -1,10 +1,13 @@
 //! Comptes d'imputation et saisie des heures (8 h = 1 jour) par semaine.
 //!
-//! - un compte = un fichier comptes/<alias>.md (nom, alias, jours attribués) ;
+//! - un compte = un fichier comptes/<alias>.md (nom, alias, jours attribués, description) ;
 //! - un projet est rattaché à un compte par `compte: <alias>` dans son frontmatter ;
 //! - les heures d'une semaine sont dans imputations/AAAA/AAAA-Sxx.md (frontmatter `hours`,
 //!   tableau régénéré dans le corps) ;
-//! - l'IA peut proposer la répartition d'une semaine à partir du rapport hebdomadaire.
+//! - l'IA peut proposer la répartition d'une semaine à partir du rapport hebdomadaire ;
+//! - les dates de dernière saisie (dans l'outil de gestion des temps) sont dans
+//!   imputations/saisies.md ; elles découpent le temps en périodes, chacune avec un bilan par
+//!   compte et la liste des semaines incomplètes.
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, LazyLock};
@@ -23,7 +26,7 @@ use crate::llm::{chat_json, Llm, Msg};
 use crate::prompts::IMPUTATION_SYSTEM;
 use crate::reports::ReportService;
 use crate::util::{iso_date, parse_date, week_bounds, week_label};
-use crate::vault::{join_frontmatter, meta_f64, meta_str, number, slugify, split_frontmatter, Meta, Vault};
+use crate::vault::{join_frontmatter, meta_f64, meta_str, number, slugify, split_frontmatter, value_str, Meta, Vault};
 
 pub const HOURS_PER_DAY: f64 = 8.0;
 /// granularité des heures saisies
@@ -135,6 +138,7 @@ fn hours_to_value(hours: &Hours) -> Value {
 pub struct Account {
     pub alias: String,
     pub title: String,
+    pub description: String,
     pub days: f64,
     pub consumed_days: f64,
     pub remaining_days: f64,
@@ -159,6 +163,53 @@ pub struct Week {
     pub hours: Hours,
     pub totals: IndexMap<String, f64>,
     pub comment: String,
+    pub path: Option<String>,
+}
+
+/// Heures d'un compte sur une période.
+#[derive(Debug, Clone, Serialize)]
+pub struct PeriodAccount {
+    pub alias: String,
+    pub title: String,
+    pub hours: f64,
+    pub days: f64,
+    /// part des heures de la période (0 à 1)
+    pub share: f64,
+}
+
+/// Semaine contenant des jours ouvrés dont le total n'est pas 8 h.
+#[derive(Debug, Clone, Serialize)]
+pub struct WeekGap {
+    pub week: String,
+    pub start: String,
+    pub days: Vec<String>,
+    /// heures à ajouter pour atteindre 8 h par jour
+    pub missing_hours: f64,
+    /// heures au-delà de 8 h par jour
+    pub extra_hours: f64,
+}
+
+/// Période entre deux saisies ; `open` : du lendemain de la dernière saisie à aujourd'hui.
+#[derive(Debug, Clone, Serialize)]
+pub struct Period {
+    pub start: String,
+    pub end: String,
+    pub open: bool,
+    pub workdays: usize,
+    pub complete_days: usize,
+    pub complete: bool,
+    pub total_hours: f64,
+    pub expected_hours: f64,
+    pub accounts: Vec<PeriodAccount>,
+    pub incomplete_weeks: Vec<WeekGap>,
+}
+
+/// Dates de saisie et périodes qu'elles définissent (les plus récentes en premier).
+#[derive(Debug, Clone, Serialize)]
+pub struct Tracking {
+    pub saisies: Vec<String>,
+    pub last_saisie: Option<String>,
+    pub periods: Vec<Period>,
     pub path: Option<String>,
 }
 
@@ -196,6 +247,7 @@ pub struct ImputationService {
 
 const ACCOUNTS_FOLDER: &str = "comptes";
 const FOLDER: &str = "imputations";
+const SAISIES_PATH: &str = "imputations/saisies.md";
 
 impl ImputationService {
     pub fn new(vault: Arc<Vault>, index: Arc<Index>, reports: Arc<ReportService>, llm: Arc<dyn Llm>, settings: Arc<Settings>) -> Self {
@@ -249,6 +301,7 @@ impl ImputationService {
                         .map(|p| p.id.clone())
                         .collect(),
                     title: note.title,
+                    description: meta_str(&note.meta, "description").unwrap_or_default(),
                     days,
                     consumed_days: round3(used),
                     remaining_days: round3(days - used),
@@ -268,7 +321,7 @@ impl ImputationService {
             .ok_or_else(|| not_found(format!("Compte d'imputation introuvable : {alias}")))
     }
 
-    pub fn create_account(&self, title: &str, alias: &str, days: f64) -> Result<Account> {
+    pub fn create_account(&self, title: &str, alias: &str, days: f64, description: &str) -> Result<Account> {
         let (title, alias) = (title.trim(), alias.trim());
         if title.is_empty() {
             return Err(vault_err("Le nom du compte est obligatoire"));
@@ -279,10 +332,13 @@ impl ImputationService {
         if self.index.resolve_link(alias)?.is_some() {
             return Err(vault_err(format!("L'alias « {alias} » est déjà utilisé")));
         }
-        let meta: Meta = serde_json::from_value(
+        let mut meta: Meta = serde_json::from_value(
             json!({"type": "compte", "title": title, "alias": alias, "days": number(check_number(days, "days")?)}),
         )
         .unwrap();
+        if !description.trim().is_empty() {
+            meta.insert("description".into(), description.trim().into());
+        }
         let body = format!("\n# {title}\n\nCompte d'imputation `{alias}`.\n");
         let rel = self.vault.unique_path(ACCOUNTS_FOLDER, &slugify(alias, 50))?;
         self.vault.write(&rel, &join_frontmatter(&meta, &body), None, true)?;
@@ -290,7 +346,14 @@ impl ImputationService {
         self.account(alias)
     }
 
-    pub fn update_account(&self, alias: &str, title: Option<&str>, days: Option<f64>) -> Result<Account> {
+    /// Champs à `None` inchangés ; une description vide est retirée.
+    pub fn update_account(
+        &self,
+        alias: &str,
+        title: Option<&str>,
+        days: Option<f64>,
+        description: Option<&str>,
+    ) -> Result<Account> {
         let note = self.account_note(alias)?;
         let text = self.vault.read_text(&note.path)?;
         let (mut meta, body) = split_frontmatter(&text);
@@ -302,6 +365,15 @@ impl ImputationService {
         }
         if let Some(days) = days {
             meta.insert("days".into(), number(check_number(days, "days")?));
+        }
+        match description.map(str::trim) {
+            Some("") => {
+                meta.shift_remove("description");
+            }
+            Some(description) => {
+                meta.insert("description".into(), description.into());
+            }
+            None => {}
         }
         self.vault.write(&note.path, &join_frontmatter(&meta, body), None, false)?;
         self.index.upsert(&note.path)?;
@@ -431,6 +503,100 @@ impl ImputationService {
         self.week(day)
     }
 
+    // --- saisies et périodes -----------------------------------------------
+
+    /// Dates de dernière saisie, triées et sans doublon.
+    pub fn saisies(&self) -> Result<Vec<NaiveDate>> {
+        if !self.vault.exists(SAISIES_PATH) {
+            return Ok(Vec::new());
+        }
+        let (meta, _) = split_frontmatter(&self.vault.read_text(SAISIES_PATH)?);
+        let dates: BTreeSet<NaiveDate> = match meta.get("dates") {
+            Some(Value::Array(items)) => items.iter().filter_map(|v| iso_date(&value_str(v))).collect(),
+            Some(value) => iso_date(&value_str(value)).into_iter().collect(),
+            None => BTreeSet::new(),
+        };
+        Ok(dates.into_iter().collect())
+    }
+
+    fn save_saisies(&self, dates: &BTreeSet<NaiveDate>) -> Result<()> {
+        let list: Vec<String> = dates.iter().map(|d| d.to_string()).collect();
+        let meta: Meta = serde_json::from_value(json!({"type": "saisies-imputation", "dates": list})).unwrap();
+        let mut body = String::from(
+            "\n# Saisies des imputations\n\nDates de dernière saisie dans l'outil de gestion des temps : \
+             chaque date clôt la période commencée le lendemain de la précédente.\n\n",
+        );
+        for date in dates.iter().rev() {
+            body.push_str(&format!("- {date}\n"));
+        }
+        self.vault.write(SAISIES_PATH, &join_frontmatter(&meta, &body), None, false)?;
+        self.index.upsert(SAISIES_PATH)?;
+        Ok(())
+    }
+
+    pub fn add_saisie(&self, date: NaiveDate, today: NaiveDate) -> Result<Tracking> {
+        let mut dates: BTreeSet<NaiveDate> = self.saisies()?.into_iter().collect();
+        dates.insert(date);
+        self.save_saisies(&dates)?;
+        self.tracking(today)
+    }
+
+    pub fn remove_saisie(&self, date: NaiveDate, today: NaiveDate) -> Result<Tracking> {
+        let mut dates: BTreeSet<NaiveDate> = self.saisies()?.into_iter().collect();
+        if !dates.remove(&date) {
+            return Err(not_found(format!("Pas de saisie le {date}")));
+        }
+        self.save_saisies(&dates)?;
+        self.tracking(today)
+    }
+
+    /// Heures de toutes les semaines : {date: {alias: heures}}.
+    fn all_hours(&self) -> Result<Hours> {
+        let mut result = Hours::new();
+        for note in self.index.by_type("imputation")? {
+            for (day, entries) in clean_hours(note.meta.get("hours")) {
+                let target = result.entry(day).or_default();
+                for (alias, hours) in entries {
+                    *target.entry(alias).or_insert(0.0) += hours;
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Périodes délimitées par les dates de saisie : la première date marque le début du
+    /// suivi, chaque date suivante clôt une période ; la période ouverte court du lendemain
+    /// de la dernière saisie jusqu'à `today`.
+    pub fn tracking(&self, today: NaiveDate) -> Result<Tracking> {
+        let saisies = self.saisies()?;
+        let hours = self.all_hours()?;
+        let accounts: HashMap<String, (String, String)> =
+            self.accounts()?.into_iter().map(|a| (a.alias.to_lowercase(), (a.alias, a.title))).collect();
+        let mut periods: Vec<Period> =
+            saisies.windows(2).map(|w| period(w[0] + Duration::days(1), w[1], false, &hours, &accounts)).collect();
+        if let Some(last) = saisies.last()
+            && *last < today
+        {
+            periods.push(period(*last + Duration::days(1), today, true, &hours, &accounts));
+        }
+        periods.reverse();
+        Ok(Tracking {
+            last_saisie: saisies.last().map(|d| d.to_string()),
+            saisies: saisies.iter().rev().map(|d| d.to_string()).collect(),
+            periods,
+            path: self.vault.exists(SAISIES_PATH).then(|| SAISIES_PATH.to_string()),
+        })
+    }
+
+    /// Jours ouvrés incomplets depuis la dernière saisie (à défaut : dans la semaine en cours).
+    pub fn missing_days(&self, today: NaiveDate) -> Result<usize> {
+        if self.saisies()?.is_empty() {
+            return Ok(self.incomplete_days(today)?.len());
+        }
+        let tracking = self.tracking(today)?;
+        Ok(tracking.periods.iter().filter(|p| p.open).map(|p| p.workdays - p.complete_days).sum())
+    }
+
     // --- proposition IA -----------------------------------------------------
 
     fn weekly_report_text(&self, start: NaiveDate) -> Result<Option<String>> {
@@ -465,8 +631,10 @@ impl ImputationService {
             .map(|a| {
                 let used = consumed.get(&a.alias.to_lowercase()).copied().unwrap_or(0.0) / HOURS_PER_DAY;
                 let projects = if a.projects.is_empty() { "-".to_string() } else { a.projects.join(", ") };
+                let description =
+                    if a.description.is_empty() { String::new() } else { format!(" | description : {}", a.description) };
                 format!(
-                    "- {} — {} | jours attribués : {} | consommés hors cette semaine : {} | restants avant cette semaine : {} | projets : {projects}",
+                    "- {} — {}{description} | jours attribués : {} | consommés hors cette semaine : {} | restants avant cette semaine : {} | projets : {projects}",
                     a.alias,
                     a.title,
                     fmt(a.days),
@@ -539,6 +707,65 @@ impl ImputationService {
             }
         }
         Ok(json!({"hours": hours_to_value(&hours), "comment": proposal.comment.trim()}))
+    }
+}
+
+/// Bilan par compte et complétude (8 h par jour ouvré) du `start` au `end` inclus.
+fn period(start: NaiveDate, end: NaiveDate, open: bool, hours: &Hours, accounts: &HashMap<String, (String, String)>) -> Period {
+    let mut by_account: IndexMap<String, f64> = IndexMap::new();
+    let mut gaps: IndexMap<NaiveDate, WeekGap> = IndexMap::new();
+    let (mut workdays, mut complete_days) = (0, 0);
+    let mut day = start;
+    while day <= end {
+        let entries = hours.get(&day.to_string());
+        for (alias, h) in entries.into_iter().flatten() {
+            let key = accounts.get(&alias.to_lowercase()).map(|(a, _)| a.clone()).unwrap_or_else(|| alias.clone());
+            *by_account.entry(key).or_insert(0.0) += h;
+        }
+        if day.weekday().num_days_from_monday() < 5 {
+            workdays += 1;
+            let total = round2(entries.map(|e| e.values().sum()).unwrap_or(0.0));
+            if total == HOURS_PER_DAY {
+                complete_days += 1;
+            } else {
+                let (monday, _) = week_bounds(day);
+                let gap = gaps.entry(monday).or_insert_with(|| WeekGap {
+                    week: week_label(monday),
+                    start: monday.to_string(),
+                    days: Vec::new(),
+                    missing_hours: 0.0,
+                    extra_hours: 0.0,
+                });
+                gap.days.push(day.to_string());
+                gap.missing_hours = round2(gap.missing_hours + (HOURS_PER_DAY - total).max(0.0));
+                gap.extra_hours = round2(gap.extra_hours + (total - HOURS_PER_DAY).max(0.0));
+            }
+        }
+        day += Duration::days(1);
+    }
+    let total_hours = round2(by_account.values().sum());
+    let mut rows: Vec<PeriodAccount> = by_account
+        .into_iter()
+        .map(|(alias, h)| PeriodAccount {
+            title: accounts.get(&alias.to_lowercase()).map(|(_, t)| t.clone()).unwrap_or_default(),
+            hours: round2(h),
+            days: round3(h / HOURS_PER_DAY),
+            share: if total_hours > 0.0 { round3(h / total_hours) } else { 0.0 },
+            alias,
+        })
+        .collect();
+    rows.sort_by(|a, b| b.hours.total_cmp(&a.hours).then_with(|| a.alias.to_lowercase().cmp(&b.alias.to_lowercase())));
+    Period {
+        start: start.to_string(),
+        end: end.to_string(),
+        open,
+        workdays,
+        complete_days,
+        complete: complete_days == workdays,
+        total_hours,
+        expected_hours: workdays as f64 * HOURS_PER_DAY,
+        accounts: rows,
+        incomplete_weeks: gaps.into_values().collect(),
     }
 }
 
