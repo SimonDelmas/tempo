@@ -85,7 +85,8 @@ http://localhost:5173.
   liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
   (ou de la note entière) ; le résultat est relu avant d'être inséré.
 - **Tâches** : kanban par statut (glisser-déposer), fiche de tâche avec statut / priorité /
-  échéance, historique daté et bouton « Rapport d'avancement ».
+  échéance / projet, historique daté et bouton « Rapport d'avancement ». Le projet se choisit
+  dans la liste des notes de `projets/` ; le bouton « + » crée la note d'un nouveau projet.
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers
   dans `00-inbox/`, « Analyser avec l'IA », ajuster la proposition, « Appliquer ».
   Le bouton « Copier le prompt de résumé » donne le format conseillé pour Copilot.

@@ -246,6 +246,7 @@ pub struct ImputationService {
 }
 
 const ACCOUNTS_FOLDER: &str = "comptes";
+const PROJECTS_FOLDER: &str = "projets";
 const FOLDER: &str = "imputations";
 const SAISIES_PATH: &str = "imputations/saisies.md";
 
@@ -391,6 +392,26 @@ impl ImputationService {
             .collect();
         projects.sort_by_key(|p| p.title.to_lowercase());
         Ok(projects)
+    }
+
+    /// Crée la note `projets/<slug>.md` ; l'identifiant du projet est le nom du fichier.
+    pub fn create_project(&self, title: &str) -> Result<Project> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(vault_err("Le nom du projet est obligatoire"));
+        }
+        if self.projects()?.iter().any(|p| p.title.to_lowercase() == title.to_lowercase()) {
+            return Err(vault_err(format!("Le projet « {title} » existe déjà")));
+        }
+        let meta: Meta = serde_json::from_value(json!({"type": "projet", "title": title})).unwrap();
+        let body = format!("\n# {title}\n");
+        let rel = self.vault.unique_path(PROJECTS_FOLDER, &slugify(title, 40))?;
+        self.vault.write(&rel, &join_frontmatter(&meta, &body), None, true)?;
+        self.index.upsert(&rel)?;
+        self.projects()?
+            .into_iter()
+            .find(|p| p.path == rel)
+            .ok_or_else(|| not_found(format!("Projet introuvable : {rel}")))
     }
 
     fn project(&self, project_id: &str) -> Result<Project> {

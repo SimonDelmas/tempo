@@ -180,6 +180,11 @@ struct SaisieDate {
 }
 
 #[derive(Deserialize)]
+struct ProjectCreate {
+    title: String,
+}
+
+#[derive(Deserialize)]
 struct ProjectAccount {
     compte: Option<String>,
 }
@@ -239,7 +244,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         // comptes d'imputation
         .route("/api/accounts", get(list_accounts).post(create_account))
         .route("/api/accounts/{alias}", patch(update_account))
-        .route("/api/projects", get(list_projects))
+        .route("/api/projects", get(list_projects).post(create_project))
         .route("/api/projects/{project_id}/account", put(set_project_account))
         .route("/api/imputations", get(get_week).put(save_week))
         .route("/api/imputations/propose", post(propose_week))
@@ -479,6 +484,10 @@ async fn update_account(State(s): State<AppState>, Path(alias): Path<String>, Js
 
 async fn list_projects(State(s): State<AppState>) -> ApiResult {
     blocking(move || s.imputations.projects()).await
+}
+
+async fn create_project(State(s): State<AppState>, JsonBody(body): JsonBody<ProjectCreate>) -> ApiResult {
+    blocking(move || s.imputations.create_project(&body.title)).await
 }
 
 async fn set_project_account(

@@ -191,6 +191,12 @@ async fn api() {
     assert_eq!(patched.json()["days"], 4.0);
     let project = app.call(Method::PUT, "/api/projects/sap/account", Some(json!({"compte": "FORM"}))).await.json();
     assert_eq!(project["compte"], "FORM");
+    let created = app.post("/api/projects", Some(json!({"title": "Refonte du portail"}))).await.json();
+    assert_eq!(created["id"], "refonte-du-portail");
+    assert_eq!(created["path"], "projets/refonte-du-portail.md");
+    assert!(app.get("/api/projects").await.json().as_array().unwrap().iter().any(|p| p["id"] == "refonte-du-portail"));
+    assert_eq!(app.post("/api/projects", Some(json!({"title": "migration sap"}))).await.status, StatusCode::BAD_REQUEST);
+    assert_eq!(app.post("/api/projects", Some(json!({"title": " "}))).await.status, StatusCode::BAD_REQUEST);
     let saved =
         app.call(Method::PUT, "/api/imputations", Some(json!({"date": "2026-10-14", "hours": {"2026-10-12": {"FORM": 8}}}))).await;
     assert_eq!(saved.json()["totals"]["2026-10-12"], 8.0);

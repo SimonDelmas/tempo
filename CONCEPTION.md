@@ -104,6 +104,11 @@ due: 2026-10-24
 avec une section `## Historique` (`- AAAA-MM-JJ : texte`) alimentée par l'application ;
 c'est elle qui permet de savoir ce qui a évolué sur une période.
 
+`project` contient l'identifiant d'une note de `projets/` (nom du fichier sans `.md`) : les
+listes de projets de l'interface viennent de `GET /api/projects`, et `POST /api/projects`
+(`{title}`) crée `projets/<slug>.md` (`type: projet`, `title`). Un identifiant sans note reste
+accepté et s'affiche « sans note ».
+
 ## Flux Inbox (mails / Teams)
 
 1. Coller un ou plusieurs résumés (séparés par `---`) ou déposer un fichier dans `00-inbox/`.
@@ -219,4 +224,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
+- [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

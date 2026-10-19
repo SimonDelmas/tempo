@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, Config, STATUS_LABELS, Task, today } from "../api";
+import ProjectSelect, { projectTitle, useProjects } from "./ProjectSelect";
 
 type Props = {
   config: Config;
@@ -20,8 +21,10 @@ export default function TasksView({ config, revision, project, onProject, onOpen
   const reload = () => api.tasks().then(setTasks).catch((e) => notify(e.message, true));
   useEffect(() => { reload(); }, [revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const projects = useMemo(
-    () => [...new Set(tasks.map((t) => t.project).filter(Boolean) as string[])].sort(), [tasks]);
+  const [projects, addProject] = useProjects(revision);
+  /** projets cités par des tâches sans note dans projets/ */
+  const orphans = useMemo(() => [...new Set(tasks.map((t) => t.project).filter(Boolean) as string[])]
+    .filter((id) => !projects.some((p) => p.id === id)).sort(), [tasks, projects]);
   const visible = tasks.filter((t) => !project || t.project === project);
   const columns = config.statuses.filter((s) => showDone || s !== "terminee");
 
@@ -58,7 +61,8 @@ export default function TasksView({ config, revision, project, onProject, onOpen
         <h2>Tâches</h2>
         <select value={project} onChange={(e) => onProject(e.target.value || null)}>
           <option value="">Tous les projets</option>
-          {projects.map((p) => <option key={p}>{p}</option>)}
+          {projects.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+          {orphans.map((p) => <option key={p} value={p}>{p} (sans note)</option>)}
         </select>
         <label className="check">
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Terminées
@@ -69,9 +73,8 @@ export default function TasksView({ config, revision, project, onProject, onOpen
         <input placeholder="Nouvelle tâche…" value={draft.title}
           onChange={(e) => setDraft({ ...draft, title: e.target.value })}
           onKeyDown={(e) => e.key === "Enter" && create()} />
-        <input placeholder="Projet" list="projects" value={draft.project}
-          onChange={(e) => setDraft({ ...draft, project: e.target.value })} />
-        <datalist id="projects">{projects.map((p) => <option key={p} value={p} />)}</datalist>
+        <ProjectSelect projects={projects} value={draft.project || project}
+          onChange={(id) => setDraft((d) => ({ ...d, project: id }))} onCreated={addProject} notify={notify} />
         <select value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: e.target.value })}>
           {config.priorities.map((p) => <option key={p}>{p}</option>)}
         </select>
@@ -98,7 +101,7 @@ export default function TasksView({ config, revision, project, onProject, onOpen
                     </div>
                     <div className="card-title">{t.title}</div>
                     <div className="card-meta">
-                      {t.project && <span className="tag">{t.project}</span>}
+                      {t.project && <span className="tag">{projectTitle(projects, t.project)}</span>}
                       {t.due && <span className={`small ${overdue ? "overdue" : "muted"}`}>⏱ {t.due}</span>}
                     </div>
                   </article>

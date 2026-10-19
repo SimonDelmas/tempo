@@ -4,6 +4,7 @@ import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, TaskDraft, Tex
   TYPE_LABELS } from "../api";
 import { ExtractTasksDialog, TEXT_ACTION_LABELS, TextResultDialog } from "./EditorAssist";
 import MarkdownEditor from "./MarkdownEditor";
+import ProjectSelect, { useProjects } from "./ProjectSelect";
 
 const PREVIEW_KEY = "tempo.livePreview";
 
@@ -35,6 +36,7 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
   const pathRef = useRef(path);
   const viewRef = useRef<EditorView | null>(null);
   const [assistMenu, setAssistMenu] = useState(false);
+  const [vaultProjects, addProject] = useProjects(revision);
   const [preview, setPreview] = useState(() => {
     try {
       return localStorage.getItem(PREVIEW_KEY) !== "off";
@@ -260,8 +262,8 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
             <input type="date" value={String(meta.due ?? "")} onChange={(e) => updateTask("due", e.target.value)} />
           </label>
           <label>Projet
-            <input defaultValue={String(meta.project ?? "")} key={String(meta.project ?? "")}
-              onBlur={(e) => e.target.value !== (meta.project ?? "") && updateTask("project", e.target.value)} />
+            <ProjectSelect projects={vaultProjects} value={String(meta.project ?? "")}
+              onChange={(id) => updateTask("project", id)} onCreated={addProject} notify={notify} />
           </label>
           <span className="spacer" />
           <button disabled={busy || !config.llm_enabled} title={config.llm_enabled ? "" : "API LLM non configurée"}

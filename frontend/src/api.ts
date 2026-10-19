@@ -176,6 +176,7 @@ export const api = {
   updateAccount: (alias: string, changes: { title?: string; days?: number; description?: string }) =>
     request<Account>("PATCH", `/api/accounts/${encodeURIComponent(alias)}`, changes),
   projects: () => request<Project[]>("GET", "/api/projects"),
+  createProject: (title: string) => request<Project>("POST", "/api/projects", { title }),
   setProjectAccount: (id: string, compte: string | null) =>
     request<Project>("PUT", `/api/projects/${encodeURIComponent(id)}/account`, { compte }),
   imputations: (date: string) => request<ImputationWeek>("GET", "/api/imputations" + q({ date })),

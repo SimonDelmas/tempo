@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Account, api, NoteSummary, STATUS_LABELS, Task, today } from "../api";
 import { Conversation } from "../chats";
+import { useProjects } from "./ProjectSelect";
 
 /** Barres latérales des espaces Tâches, Rapports, Imputations et Chat (Notes : NotesSidebar). */
 
@@ -36,11 +37,18 @@ export function TasksSidebar({ revision, current, project, onOpen, onBoard }: {
   useEffect(() => { api.tasks().then(setTasks).catch(() => {}); }, [revision]);
 
   const open = tasks.filter((t) => t.status !== "terminee");
+  const [notes] = useProjects(revision);
+  /** [identifiant, titre, tâches ouvertes] : projets du vault puis projets cités sans note */
   const projects = useMemo(() => {
     const counts = new Map<string, number>();
     for (const t of open) if (t.project) counts.set(t.project, (counts.get(t.project) ?? 0) + 1);
-    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b, "fr"));
-  }, [open]);
+    const orphans = [...counts.keys()].filter((id) => !notes.some((p) => p.id === id))
+      .sort((a, b) => a.localeCompare(b, "fr"));
+    return [
+      ...notes.map((p) => [p.id, p.title, counts.get(p.id) ?? 0] as const),
+      ...orphans.map((id) => [id, id, counts.get(id)!] as const),
+    ];
+  }, [open, notes]);
   const watch = open.filter((t) => t.status === "bloquee" || (t.due && t.due < today()));
   const doing = open.filter((t) => t.status === "en_cours");
 
@@ -58,9 +66,9 @@ export function TasksSidebar({ revision, current, project, onOpen, onBoard }: {
         extra={<span className="count">{open.length}</span>}>Tableau</Item>
       <Section title="Projets">
         {projects.length === 0 && <p className="muted small">Aucun projet</p>}
-        {projects.map(([p, n]) => (
+        {projects.map(([p, title, n]) => (
           <Item key={p} active={!current && project === p} onClick={() => onBoard(p)}
-            extra={<span className="count">{n}</span>}>{p}</Item>
+            extra={<span className="count">{n}</span>}>{title}</Item>
         ))}
       </Section>
       {watch.length > 0 && <Section title="À surveiller">{watch.map(taskItem)}</Section>}
