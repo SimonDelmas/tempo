@@ -187,6 +187,8 @@ main { overflow: auto; min-width: 0; }
 .kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(200px, 1fr); gap: 12px; align-items: start; overflow-x: auto; }
 .column { background: var(--sidebar); border-radius: 8px; padding: 10px; min-height: 200px; }
 .column h3 { font-size: 13px; }
+.column.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.card.dragging { opacity: .4; }
 .status-bloquee h3 { color: var(--danger); }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border);

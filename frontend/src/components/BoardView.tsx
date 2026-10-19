@@ -23,6 +23,7 @@ export default function BoardView({ config, revision, week, project, projects, a
   const [showDone, setShowDone] = useState(true);
   const [draft, setDraft] = useState({ title: "", project: "", priority: "normale", due: "" });
   const [dragged, setDragged] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
 
   const reload = () => api.board(week || null).then(setBoard).catch((e) => notify(e.message, true));
   useEffect(() => { reload(); }, [revision, week]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -101,16 +102,37 @@ export default function BoardView({ config, revision, week, project, projects, a
         {columns.map((status) => {
           const items = visible.filter((t) => t.status === status);
           return (
-            <section key={status} className={`column status-${status}`}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => { if (dragged) move(dragged, status); setDragged(null); }}>
+            <section key={status} className={`column status-${status}${over === status ? " drop-target" : ""}`}
+              onDragOver={(e) => {
+                if (!dragged) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (over !== status) setOver(status);
+              }}
+              onDragLeave={(e) => {
+                // ignore les passages d'un enfant à l'autre de la colonne
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                const id = dragged || e.dataTransfer.getData("text/plain");
+                if (id) move(id, status);
+                setDragged(null);
+                setOver(null);
+              }}>
               <h3>{STATUS_LABELS[status]} <span className="count">{items.length}</span></h3>
               {items.map((t) => {
                 const overdue = t.due && t.due < today() && t.status !== "terminee";
                 const carried = t.iterations.indexOf(board.week) > 0;
                 return (
-                  <article key={t.id} className={`card priority-${t.priority}`} draggable
-                    onDragStart={() => setDragged(t.id)} onClick={() => onOpen(t.path)}>
+                  <article key={t.id} className={`card priority-${t.priority}${dragged === t.id ? " dragging" : ""}`} draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", t.id);
+                      setDragged(t.id);
+                    }}
+                    onDragEnd={() => { setDragged(null); setOver(null); }}
+                    onClick={() => onOpen(t.path)}>
                     <div className="card-top">
                       <span className="muted small">{t.id}</span>
                       {t.priority === "haute" && <span className="tag high">haute</span>}

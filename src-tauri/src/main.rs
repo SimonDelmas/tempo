@@ -59,6 +59,9 @@ fn start(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .title("Tempo")
         .inner_size(1400.0, 900.0)
         .min_inner_size(900.0, 600.0)
+        // sous Windows, le dépôt de fichiers natif de Tauri intercepte le glisser-déposer HTML5
+        // (board, backlog) : on le désactive, l'application n'en a pas l'usage
+        .disable_drag_drop_handler()
         // les liens externes s'ouvrent dans le navigateur, pas dans la fenêtre de l'application
         .on_navigation(move |url| {
             let internal = url.origin().ascii_serialization() == local;

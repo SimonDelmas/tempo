@@ -89,8 +89,8 @@ http://localhost:5173.
   - **Backlog** : les tâches regroupées par projet (les projets tiennent lieu de features),
     ordonnées par glisser-déposer ; déposer une tâche sous un autre projet la rattache à ce
     projet. Les features elles-mêmes s'ordonnent en glissant leur ligne d'en-tête. La colonne Itération planifie une tâche sur une semaine (courante ou suivantes).
-  - **Board** : kanban par statut (glisser-déposer) d'une semaine, la semaine courante par
-    défaut ; flèches et liste pour afficher les autres semaines. Une tâche créée depuis le board
+  - **Board** : kanban par statut d'une semaine (glisser une carte dans une autre colonne
+    change son statut), la semaine courante par défaut ; flèches et liste pour afficher les autres semaines. Une tâche créée depuis le board
     est planifiée sur la semaine affichée. Au changement de semaine, les tâches non terminées
     basculent dans la semaine courante (« reportée ») et restent visibles sur le board de la
     semaine quittée.
