@@ -17,7 +17,8 @@ cd frontend && npm run typecheck # vérification TypeScript seule
 cd frontend && npm run dev       # Vite sur :5173, proxy /api → :8765 (lancer uv run tempo à côté)
 ```
 
-Plateforme de dev : Windows. Pas de linter configuré.
+Plateforme de dev : Windows ; `python` n'est pas dans le PATH, passer par `uv run python`.
+Pas de linter configuré.
 
 ## Principes à respecter
 
