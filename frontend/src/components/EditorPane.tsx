@@ -5,7 +5,9 @@ import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, TaskDraft, Tex
 import { ExtractTasksDialog, TEXT_ACTION_LABELS, TextResultDialog } from "./EditorAssist";
 import MarkdownEditor from "./MarkdownEditor";
 
-type SaveStatus = "enregistré" | "modifié" | "enregistrement…" | "conflit" | "erreur";
+const PREVIEW_KEY = "tempo.livePreview";
+
+type SaveStatus ="enregistré" | "modifié" | "enregistrement…" | "conflit" | "erreur";
 
 type Props = {
   path: string;
@@ -29,6 +31,13 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
   const pathRef = useRef(path);
   const viewRef = useRef<EditorView | null>(null);
   const [assistMenu, setAssistMenu] = useState(false);
+  const [preview, setPreview] = useState(() => {
+    try {
+      return localStorage.getItem(PREVIEW_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  });
   const [drafts, setDrafts] = useState<TaskDraft[] | null>(null);
   const [textResult, setTextResult] = useState<
     { action: TextAction; result: string; from: number; to: number; hasSelection: boolean } | null>(null);
@@ -183,6 +192,19 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
           {status}
         </span>
         <span className="spacer" />
+        <button className={`ghost toggle ${preview ? "on" : ""}`}
+          title="Aperçu en direct : masque la syntaxe Markdown hors de la ligne en cours"
+          onClick={() => {
+            const next = !preview;
+            setPreview(next);
+            try {
+              localStorage.setItem(PREVIEW_KEY, next ? "on" : "off");
+            } catch {
+              /* stockage indisponible */
+            }
+          }}>
+          Aperçu
+        </button>
         <div className="menu-host">
           <button disabled={busy || !config.llm_enabled} onClick={() => setAssistMenu((o) => !o)}
             title={config.llm_enabled ? "Actions IA sur la note ou la sélection" : "API LLM non configurée"}>
@@ -255,7 +277,7 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
 
       {note && (
         <MarkdownEditor key={editorKey} initial={note.content} files={files} onChange={onChange}
-          onOpenLink={openLink} onCreateTask={createTask} viewRef={viewRef} />
+          onOpenLink={openLink} onCreateTask={createTask} viewRef={viewRef} preview={preview} />
       )}
 
       {drafts && (

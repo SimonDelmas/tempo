@@ -1,14 +1,15 @@
 import { MutableRefObject, useEffect, useRef } from "react";
 import { EditorView, keymap, Decoration, MatchDecorator, ViewPlugin, ViewUpdate,
   DecorationSet, drawSelection, highlightActiveLine, placeholder } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { autocompletion, Completion, CompletionContext, CompletionResult,
   completionKeymap } from "@codemirror/autocomplete";
 import { tags } from "@lezer/highlight";
 import { NoteSummary, today } from "../api";
+import { livePreview } from "../livePreview";
 
 type Props = {
   initial: string;
@@ -18,6 +19,8 @@ type Props = {
   onCreateTask: (title: string) => Promise<string>;
   /** vue CodeMirror, pour les actions qui agissent sur le texte (IA) */
   viewRef?: MutableRefObject<EditorView | null>;
+  /** aperçu en direct (syntaxe masquée hors de la ligne en cours) */
+  preview: boolean;
 };
 
 const markdownStyle = HighlightStyle.define([
@@ -88,8 +91,15 @@ const frontmatter = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations },
 );
 
-export default function MarkdownEditor({ initial, files, onChange, onOpenLink, onCreateTask, viewRef }: Props) {
+export default function MarkdownEditor({ initial, files, onChange, onOpenLink, onCreateTask, viewRef,
+  preview }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const editor = useRef<EditorView | null>(null);
+  const previewMode = useRef(new Compartment());
+
+  useEffect(() => {
+    editor.current?.dispatch({ effects: previewMode.current.reconfigure(preview ? livePreview : []) });
+  }, [preview]);
   const callbacks = useRef({ files, onChange, onOpenLink, onCreateTask });
   callbacks.current = { files, onChange, onOpenLink, onCreateTask };
 
@@ -145,10 +155,11 @@ export default function MarkdownEditor({ initial, files, onChange, onOpenLink, o
           highlightActiveLine(),
           EditorView.lineWrapping,
           editorTheme,
-          markdown(),
+          markdown({ base: markdownLanguage }),
           syntaxHighlighting(markdownStyle),
           wikiLinks,
           frontmatter,
+          previewMode.current.of(preview ? livePreview : []),
           placeholder("Écrivez… ([[ pour lier une note, / pour les commandes)"),
           autocompletion({ override: [linkCompletion, slashCompletion] }),
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
@@ -170,8 +181,10 @@ export default function MarkdownEditor({ initial, files, onChange, onOpenLink, o
       }),
     });
     view.focus();
+    editor.current = view;
     if (viewRef) viewRef.current = view;
     return () => {
+      editor.current = null;
       if (viewRef) viewRef.current = null;
       view.destroy();
     };

@@ -306,3 +306,11 @@ input.full { width: 100%; }
 .assist-modal textarea { font-family: var(--sans); }
 .assist-modal .proposal-card .grow { flex: 1; min-width: 220px; }
 .full-row { flex-basis: 100%; padding-left: 26px; }
+
+/* --- aperçu en direct --------------------------------------------------- */
+button.toggle.on { color: var(--accent); background: var(--accent-soft); }
+.cm-lp-bullet { color: var(--muted); padding: 0 .35em 0 .1em; }
+.cm-lp-checkbox { margin: 0 .45em 0 0; vertical-align: -1px; cursor: pointer; accent-color: var(--accent); }
+.cm-lp-done { color: var(--muted); text-decoration: line-through; }
+.cm-lp-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.editor-header button { white-space: nowrap; }
