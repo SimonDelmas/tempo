@@ -68,6 +68,9 @@ http://localhost:5173.
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une
   tâche, de mettre à jour une tâche ou d'ajouter une ligne au journal : rien n'est écrit avant
   « Appliquer ». Les conversations sont conservées dans l'application (stockage local du navigateur intégré).
+  Une réponse continue en arrière-plan quand on change d'espace ou de conversation (point animé
+  sur l'icône Chat) ; si elle se termine hors de la conversation, une notification cliquable
+  l'annonce et la conversation est marquée non lue (pastille dans la liste, compteur sur Chat).
 - **Recherche sémantique** (si `TEMPO_EMBED_MODEL` est renseigné) : bouton ≈ à côté de la
   recherche des notes, suggestions de liens (notes proches pas encore liées) dans le panneau
   de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont

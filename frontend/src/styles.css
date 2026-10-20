@@ -98,6 +98,15 @@ main { overflow: auto; min-width: 0; }
   position: absolute; top: 3px; right: 6px; background: var(--danger); color: #fff; border-radius: 8px;
   padding: 0 5px; font-size: 10px; line-height: 15px;
 }
+/* réponse de l'agent en cours (barre des espaces, liste des conversations) */
+.space-busy {
+  position: absolute; top: 6px; right: 10px; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); animation: pulse 1.2s ease-in-out infinite;
+}
+.chat-status { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.chat-status.busy { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.chat-status.unread { background: var(--danger); }
+@keyframes pulse { 50% { opacity: 0.25; } }
 
 /* --- barre latérale ---------------------------------------------------- */
 .sidebar {
@@ -262,6 +271,8 @@ input.full { width: 100%; }
 .toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
 .toast { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: 420px; }
 .toast.error { background: var(--danger); color: #fff; }
+.toast.clickable { cursor: pointer; }
+.toast.clickable:hover { opacity: 0.9; }
 
 
 /* --- imputations ------------------------------------------------------- */

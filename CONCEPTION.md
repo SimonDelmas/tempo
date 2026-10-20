@@ -252,7 +252,11 @@ consultation : `search_notes`, `read_note`, `list_tasks`, `semantic_search` (si 
 embeddings sont actifs). Outils de proposition, sans écriture : `propose_task`,
 `propose_task_update`, `propose_journal_line`, appliqués un à un par l'utilisateur.
 La réponse finale est diffusée en SSE (champ `answer` extrait du JSON partiel) ; les
-conversations sont conservées côté navigateur.
+conversations sont conservées côté navigateur. Côté interface, conversations et réponses en
+cours sont tenues au niveau de l'application (`useChats` dans `chats.ts`), pas dans la vue :
+la diffusion survit au changement d'espace, plusieurs conversations peuvent attendre une
+réponse en même temps, et une réponse terminée hors de vue marque la conversation `unread`
+et déclenche une notification cliquable.
 
 ## Recherche sémantique
 
@@ -275,6 +279,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher, formules `$…$` / `$$…$$` rendues par KaTeX)
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
+- [x] Chat : réponses poursuivies en arrière-plan, notification et non-lus à la fin d'une réponse hors de vue
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)

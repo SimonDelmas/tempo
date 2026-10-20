@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
-import { ChatEntry, Conversation, loadChats, newConversation, saveChats } from "./chats";
+import { ChatEntry, useChats } from "./chats";
 import ChatView from "./components/ChatView";
 import DraftsView from "./components/DraftsView";
 import EditorPane, { EditorActions } from "./components/EditorPane";
@@ -16,7 +16,8 @@ import { ChatSidebar, ImputationsSidebar, ReportsSidebar, TasksSidebar } from ".
 import TasksView, { TasksTab } from "./components/TasksView";
 import { goBack, goForward, href, matchShortcut, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
-type Toast = { id: number; message: string; error: boolean };
+/** `action` : la notification est cliquable (ouvre par exemple la conversation concernée) */
+type Toast = { id: number; message: string; error: boolean; action?: () => void };
 
 const LAST_ROUTES_KEY = "tempo.lastRoutes";
 
@@ -36,18 +37,29 @@ export default function App() {
   const [imputationMissing, setImputationMissing] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [chats, setChats] = useState<Conversation[]>(loadChats);
   const lastRevision = useRef(-1);
   const lastRoutes = useRef(loadLastRoutes());
   const editorActions = useRef<EditorActions>({});
   const route = useRoute();
   const { space, path, params } = route;
 
-  const notify = useCallback((message: string, error = false) => {
+  const notify = useCallback((message: string, error = false, action?: () => void) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, message, error }]);
-    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), error ? 7000 : 3500);
+    setToasts((t) => [...t, { id, message, error, action }]);
+    window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), error || action ? 7000 : 3500);
   }, []);
+
+  const chat = useChats({
+    onCreated: (c) => navigate(href("chat", null, { c })),
+    onFinished: (conversation, seen, error) => {
+      if (seen) return;
+      const open = () => navigate(href("chat", null, { c: conversation.id }));
+      notify(`${error ? "Échec de l'agent" : "Réponse de l'agent prête"} : « ${conversation.title} »`, error, open);
+    },
+  });
+  // la conversation affichée est marquée comme lue
+  const viewedChat = space === "chat" && !path ? params.c ?? null : null;
+  useEffect(() => chat.view(viewedChat), [chat.view, viewedChat]);
 
   // l'index change (édition ici ou dans un autre éditeur) : on rafraîchit les listes
   const poll = useCallback(async () => {
@@ -134,24 +146,10 @@ export default function App() {
     window.setTimeout(poll, 300);
   }, [poll, space]);
 
-  useEffect(() => saveChats(chats), [chats]);
-
-  const appendChat = useCallback((id: string | null, entry: ChatEntry) => {
-    const created = id ? null : newConversation(entry.content);
-    const target = id ?? created!.id;
-    setChats((prev) => (created ? [created, ...prev] : prev).map((c) => c.id === target
-      ? { ...c, updated: new Date().toISOString(), messages: [...c.messages, entry] }
-      : c));
-    if (created) navigate(href("chat", null, { c: created.id }));
-    return target;
-  }, []);
-
   const replaceChatEntry = useCallback((id: string, index: number, entry: ChatEntry) => {
-    setChats((prev) => prev.map((c) => c.id === id
-      ? { ...c, messages: c.messages.map((m, i) => (i === index ? entry : m)) }
-      : c));
+    chat.replace(id, index, entry);
     window.setTimeout(poll, 300);
-  }, [poll]);
+  }, [chat.replace, poll]);
 
   if (!config) return <div className="loading">Chargement…</div>;
 
@@ -170,10 +168,10 @@ export default function App() {
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
     inbox: null,
     brouillons: null,
-    chat: <ChatSidebar chats={chats} current={params.c ?? null}
+    chat: <ChatSidebar chats={chat.chats} live={chat.live} current={params.c ?? null}
       onSelect={(c) => navigate(href("chat", null, { c }))}
       onDelete={(id) => {
-        setChats((prev) => prev.filter((c) => c.id !== id));
+        chat.remove(id);
         if (params.c === id) navigate(href("chat"));
       }} />,
   }[space];
@@ -186,8 +184,10 @@ export default function App() {
     imputations: <ImputationsView config={config} revision={revision} date={params.date ?? null}
       onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
-    chat: <ChatView config={config} conversation={chats.find((c) => c.id === params.c) ?? null}
-      onAppend={appendChat} onReplace={replaceChatEntry} onOpen={open} notify={notify} />,
+    chat: <ChatView config={config} conversation={chat.chats.find((c) => c.id === params.c) ?? null}
+      live={(params.c && chat.live[params.c]) || null}
+      onSend={(question) => chat.send(params.c ?? null, question)}
+      onReplace={replaceChatEntry} onOpen={open} notify={notify} />,
     brouillons: <DraftsView config={config} files={files} current={params.d ?? null}
       onSelect={(d) => navigate(href("brouillons", null, { d }))} onOpen={open} notify={notify} />,
   }[space];
@@ -197,7 +197,8 @@ export default function App() {
   return (
     <div className={`app ${layout}`}>
       <SpaceBar current={space} onSelect={selectSpace} shortcuts={config.shortcuts}
-        badges={{ inbox: inboxCount, imputations: imputationMissing }} />
+        badges={{ inbox: inboxCount, imputations: imputationMissing, chat: chat.chats.filter((c) => c.unread).length }}
+        busy={{ chat: Object.keys(chat.live).length > 0 }} />
       {sidebar}
 
       <main>
@@ -213,7 +214,15 @@ export default function App() {
       {quickOpen && <QuickOpen files={files} onOpen={open} onClose={() => setQuickOpen(false)} />}
 
       <div className="toasts">
-        {toasts.map((t) => <div key={t.id} className={`toast ${t.error ? "error" : ""}`}>{t.message}</div>)}
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast ${t.error ? "error" : ""} ${t.action ? "clickable" : ""}`}
+            onClick={t.action && (() => {
+              t.action!();
+              setToasts((all) => all.filter((x) => x.id !== t.id));
+            })}>
+            {t.message}
+          </div>
+        ))}
       </div>
     </div>
   );

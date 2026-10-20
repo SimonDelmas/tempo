@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ChatProposal, ChatStep, Config, STATUS_LABELS } from "../api";
-import { ChatEntry, Conversation, ProposalState } from "../chats";
+import { ChatEntry, Conversation, LiveReply, ProposalState } from "../chats";
 import Markdown from "./Markdown";
 
 type Props = {
   config: Config;
   conversation: Conversation | null;
-  /** ajoute un message à une conversation (créée si id est null) et renvoie son id */
-  onAppend: (id: string | null, entry: ChatEntry) => string;
+  /** réponse en cours de diffusion pour cette conversation (tenue par l'application) */
+  live: LiveReply | null;
+  /** envoie une question dans la conversation (créée si elle n'existe pas encore) */
+  onSend: (question: string) => void;
   /** remplace le message n° index d'une conversation */
   onReplace: (id: string, index: number, entry: ChatEntry) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
-
-/** réponse en cours de diffusion */
-type Live = { id: string; text: string; steps: ChatStep[] };
 
 const SUGGESTIONS = [
   "Quelles tâches sont en retard ou bloquées ?",
@@ -82,44 +81,20 @@ function ProposalCard({ item, onApply, onIgnore, onOpen }: {
   );
 }
 
-export default function ChatView({ config, conversation, onAppend, onReplace, onOpen, notify }: Props) {
+export default function ChatView({ config, conversation, live, onSend, onReplace, onOpen, notify }: Props) {
   const [draft, setDraft] = useState("");
-  const [live, setLive] = useState<Live | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const messages = conversation?.messages ?? [];
-  const shown = live && live.id === conversation?.id ? live : null;
 
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); },
-    [messages.length, shown?.text.length, shown?.steps.length]);
-  // la vue reste montée d'une conversation à l'autre pour garder la requête en cours
+    [conversation?.id, messages.length, live?.text.length, live?.steps.length]);
   useEffect(() => setDraft(""), [conversation?.id]);
 
-  const send = async (text: string) => {
+  const send = (text: string) => {
     const question = text.trim();
     if (!question || live) return;
     setDraft("");
-    const history = [...messages, { role: "user" as const, content: question }]
-      .filter((m) => !m.error)
-      .map(({ role, content }) => ({ role, content }));
-    const id = onAppend(conversation?.id ?? null, { role: "user", content: question });
-    setLive({ id, text: "", steps: [] });
-    try {
-      const reply = await api.chatStream(history, (event) => {
-        if (event.type === "delta") setLive((l) => l && { ...l, text: l.text + event.text });
-        if (event.type === "step") {
-          const { type: _, ...step } = event;
-          setLive((l) => l && { ...l, steps: [...l.steps, step] });
-        }
-      });
-      onAppend(id, {
-        role: "assistant", content: reply.answer, steps: reply.steps, links: reply.links,
-        proposals: reply.proposals.map((proposal) => ({ proposal, state: "pending" })),
-      });
-    } catch (e) {
-      onAppend(id, { role: "assistant", content: (e as Error).message, error: true });
-    } finally {
-      setLive(null);
-    }
+    onSend(question);
   };
 
   const setProposal = (index: number, j: number, item: ProposalState) => {
@@ -143,7 +118,7 @@ export default function ChatView({ config, conversation, onAppend, onReplace, on
   return (
     <div className="chat-view">
       <div className="chat-messages">
-        {messages.length === 0 && !shown && (
+        {messages.length === 0 && !live && (
           <div className="chat-empty">
             <h2>Demander à l'agent</h2>
             <p className="muted">
@@ -184,14 +159,14 @@ export default function ChatView({ config, conversation, onAppend, onReplace, on
             )}
           </div>
         ))}
-        {shown && (
+        {live && (
           <div className="chat-message assistant">
-            {shown.text
-              ? <Markdown text={shown.text} links={null} onOpen={onOpen} />
+            {live.text
+              ? <Markdown text={live.text} links={null} onOpen={onOpen} />
               : <p className="thinking">L'agent consulte vos notes…</p>}
-            {shown.steps.length > 0 && (
+            {live.steps.length > 0 && (
               <ul className="chat-live-steps">
-                {shown.steps.map((s, j) => <li key={j}>{stepLabel(s)}</li>)}
+                {live.steps.map((s, j) => <li key={j}>{stepLabel(s)}</li>)}
               </ul>
             )}
           </div>

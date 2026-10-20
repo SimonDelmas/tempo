@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Account, api, groupAccounts, NoteSummary, STATUS_LABELS, Task, today } from "../api";
-import { Conversation } from "../chats";
+import { Conversation, LiveReply } from "../chats";
 import { useProjects } from "./ProjectSelect";
 import type { TasksTab } from "./TasksView";
 
@@ -177,8 +177,10 @@ export function ImputationsSidebar({ files, revision, current, week, onOpen, onW
 
 // --- Chat -----------------------------------------------------------------
 
-export function ChatSidebar({ chats, current, onSelect, onDelete }: {
+export function ChatSidebar({ chats, live, current, onSelect, onDelete }: {
   chats: Conversation[];
+  /** réponses en cours, par conversation */
+  live: Record<string, LiveReply>;
   current: string | null;
   onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
@@ -196,6 +198,8 @@ export function ChatSidebar({ chats, current, onSelect, onDelete }: {
               e.stopPropagation();
               if (window.confirm(`Supprimer la conversation « ${c.title} » ?`)) onDelete(c.id);
             }}>×</span>}>
+            {live[c.id] && <span className="chat-status busy" title="Réponse en cours" />}
+            {c.unread && !live[c.id] && <span className="chat-status unread" title="Nouvelle réponse" />}
             {c.title}
           </Item>
         ))}
