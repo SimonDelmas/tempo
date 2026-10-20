@@ -7,6 +7,8 @@ Fonctionnalités : [README.md](README.md). Architecture, formats du vault et roa
 
 ## Commandes
 
+Python n'est pas disponible dans ce repo.
+
 ```bash
 cargo test                               # tests du cœur (crates/tempo-core)
 cargo test -p tempo-core --test chat nom # un test d'un fichier de tests/
