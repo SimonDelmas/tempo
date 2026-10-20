@@ -3,7 +3,6 @@ mod common;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use chrono::NaiveDate;
 use common::{Ctx, TestApp};
 use tempo_core::chat::ChatService;
 use tempo_core::llm::FakeLlm;
@@ -126,7 +125,7 @@ fn chat_semantic_tool() {
         c.settings.clone(),
         Some(semantic),
     );
-    assert!(chat.system_prompt(NaiveDate::from_ymd_opt(2026, 10, 19).unwrap()).contains("semantic_search"));
+    assert!(chat.tool_names().contains(&"semantic_search"));
     let hits = chat.semantic_search("nacelle de dirigeable").unwrap();
     assert_eq!(hits[0]["lien"], "[[zeppelin]]");
     assert!(hits[0].get("proximite").is_some());

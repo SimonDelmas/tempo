@@ -6,7 +6,7 @@ use std::sync::mpsc;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tempo_core::llm::{chat_json, Llm, Msg, OpenAiCompatibleLlm};
+use tempo_core::llm::{chat_json, Llm, Msg, OpenAiCompatibleLlm, ToolCall, ToolDef};
 
 /// Serveur d'une seule requête : renvoie (corps reçu, chemin) et répond `response`.
 fn serve_once(content_type: &'static str, response: String) -> (String, mpsc::Receiver<(String, Value)>) {
@@ -81,5 +81,44 @@ fn streaming_reads_server_sent_events() {
     assert_eq!(chunks, vec!["Bon", "jour", " !"]);
     let (_, body) = rx.recv().unwrap();
     assert_eq!(body["stream"], true);
+    assert!(body.get("response_format").is_none());
+}
+
+#[test]
+fn tool_calls_are_rebuilt_from_stream() {
+    // forme des événements renvoyés par Vibe : id et nom d'abord, arguments ensuite, par index
+    let chunks = [
+        json!({"delta": {"role": "assistant"}}),
+        json!({"delta": {"content": "Je regarde."}}),
+        json!({"delta": {"tool_calls": [{"index": 0, "id": "call_a", "type": "function", "function": {"name": "list_tasks", "arguments": ""}}]}}),
+        json!({"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"project\":"}}]}}),
+        json!({"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\"sap\"}"}}]}}),
+        json!({"delta": {"tool_calls": [{"index": 1, "id": "call_b", "type": "function", "function": {"name": "get_task", "arguments": ""}}]}}),
+        json!({"delta": {"tool_calls": [{"index": 1, "function": {"arguments": "{\"id\":\"T-003\"}"}}]}}),
+        json!({"delta": {}, "finish_reason": "tool_calls"}),
+    ];
+    let mut events: String = chunks
+        .iter()
+        .map(|c| format!("data: {}\n\n", json!({"choices": [{"index": 0, "delta": c["delta"], "finish_reason": c["finish_reason"]}]})))
+        .collect();
+    events += &format!("data: {}\n\ndata: [DONE]\n\n", json!({"choices": [], "usage": {"total_tokens": 144}}));
+    let (url, rx) = serve_once("text/event-stream", events);
+    let llm = OpenAiCompatibleLlm::new(&url, "key", None).unwrap();
+    let tools = [ToolDef { name: "list_tasks", description: "Tâches".into(), parameters: json!({"type": "object"}) }];
+    let history = [Msg::user("Point ?"), Msg::assistant_tools("", vec![ToolCall::new("call_0", "get_task", "{}")]), Msg::tool("call_0", "ok")];
+    let mut text = String::new();
+    let turn = llm.chat_tools(&history, "m", &tools, true, &mut |t| text.push_str(t)).unwrap();
+    assert_eq!((text.as_str(), turn.text.as_str()), ("Je regarde.", "Je regarde."));
+    assert_eq!(turn.tool_calls, vec![
+        ToolCall::new("call_a", "list_tasks", "{\"project\":\"sap\"}"),
+        ToolCall::new("call_b", "get_task", "{\"id\":\"T-003\"}"),
+    ]);
+    let (_, body) = rx.recv().unwrap();
+    assert_eq!(body["tools"][0]["function"]["name"], "list_tasks");
+    assert_eq!(body["tool_choice"], "auto");
+    // tour d'appels sans texte : contenu nul ; résultat relié à son appel
+    assert_eq!(body["messages"][1]["content"], Value::Null);
+    assert_eq!(body["messages"][1]["tool_calls"][0]["function"]["name"], "get_task");
+    assert_eq!(body["messages"][2], json!({"role": "tool", "content": "ok", "tool_call_id": "call_0"}));
     assert!(body.get("response_format").is_none());
 }

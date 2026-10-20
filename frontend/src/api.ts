@@ -311,6 +311,8 @@ export type ChatReply = {
 export type ChatEvent =
   | ({ type: "step" } & ChatStep)
   | { type: "delta"; text: string }
+  /** le texte diffusé précédait des appels d'outils : il est effacé */
+  | { type: "reset" }
   | ({ type: "done" } & ChatReply)
   | { type: "error"; detail: string };
 

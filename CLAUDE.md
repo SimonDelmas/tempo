@@ -48,7 +48,9 @@ Pas de linter configuré (`cargo clippy` disponible).
 - `index.rs` : index SQLite (notes, liens, FTS5) + watcher `notify`.
 - `llm.rs` : trait `Llm`, client OpenAI-compatible (`ureq`, certificats Windows), mode JSON
   (`chat_json`, `extract_json`, `ensure_json_hint` : le mot « json » doit figurer dans un
-  message utilisateur, pas seulement système), et `FakeLlm` pour les tests.
+  message utilisateur, pas seulement système), tool calling natif diffusé (`chat_tools`,
+  utilisé par le chat), et `FakeLlm` pour les tests (`fake_tool_calls` simule des appels
+  d'outils).
 - `de.rs` : désérialiseurs tolérants pour les réponses du modèle (équivalent des validateurs
   Pydantic : valeur invalide → valeur par défaut).
 - `prompts.rs` : prompts centralisés.

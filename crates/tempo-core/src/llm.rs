@@ -26,11 +26,17 @@ static FENCED_MD_RE: LazyLock<Regex> =
 pub struct Msg {
     pub role: String,
     pub content: String,
+    /// appels d'outils demandés par le modèle (message `assistant`)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    /// appel auquel répond un message `tool`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 impl Msg {
     pub fn new(role: &str, content: impl Into<String>) -> Self {
-        Msg { role: role.into(), content: content.into() }
+        Msg { role: role.into(), content: content.into(), tool_calls: Vec::new(), tool_call_id: None }
     }
     pub fn system(content: impl Into<String>) -> Self {
         Self::new("system", content)
@@ -40,6 +46,81 @@ impl Msg {
     }
     pub fn assistant(content: impl Into<String>) -> Self {
         Self::new("assistant", content)
+    }
+    /// Tour du modèle qui appelle des outils (avec l'éventuel texte qui les précède).
+    pub fn assistant_tools(content: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
+        Msg { tool_calls, ..Self::assistant(content) }
+    }
+    /// Résultat d'un appel d'outil.
+    pub fn tool(tool_call_id: &str, content: impl Into<String>) -> Self {
+        Msg { tool_call_id: Some(tool_call_id.into()), ..Self::new("tool", content) }
+    }
+}
+
+/// Appel d'outil demandé par le modèle (format `tool_calls` de l'API OpenAI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    #[serde(rename = "type", default = "function_type")]
+    pub kind: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FunctionCall {
+    pub name: String,
+    /// arguments en json, tels que produits par le modèle (pas forcément valides)
+    pub arguments: String,
+}
+
+fn function_type() -> String {
+    "function".into()
+}
+
+impl ToolCall {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, arguments: impl Into<String>) -> Self {
+        ToolCall { id: id.into(), kind: function_type(), function: FunctionCall { name: name.into(), arguments: arguments.into() } }
+    }
+}
+
+/// Outil proposé au modèle : nom, description et schéma json des arguments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolDef {
+    pub name: &'static str,
+    pub description: String,
+    pub parameters: Value,
+}
+
+impl ToolDef {
+    fn to_json(&self) -> Value {
+        json!({"type": "function",
+               "function": {"name": self.name, "description": self.description, "parameters": self.parameters}})
+    }
+}
+
+/// Tour du modèle avec outils : texte de réponse et/ou appels d'outils.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ToolTurn {
+    pub text: String,
+    pub tool_calls: Vec<ToolCall>,
+}
+
+/// Ajoute un morceau `delta.tool_calls` diffusé aux appels en cours de constitution : le
+/// premier morceau d'un appel porte son id et son nom, les suivants des bouts d'arguments.
+fn merge_tool_call_delta(calls: &mut Vec<ToolCall>, delta: &Value) {
+    let index = delta["index"].as_u64().map(|i| i as usize).unwrap_or(calls.len().saturating_sub(1));
+    while calls.len() <= index {
+        calls.push(ToolCall::new("", "", ""));
+    }
+    let call = &mut calls[index];
+    if let Some(id) = delta["id"].as_str().filter(|id| !id.is_empty()) {
+        call.id = id.into();
+    }
+    if let Some(name) = delta["function"]["name"].as_str() {
+        call.function.name.push_str(name);
+    }
+    if let Some(arguments) = delta["function"]["arguments"].as_str() {
+        call.function.arguments.push_str(arguments);
     }
 }
 
@@ -87,6 +168,18 @@ pub trait Llm: Send + Sync {
         on_chunk(&text);
         Ok(())
     }
+
+    /// Tour avec tool calling natif, diffusé : le texte arrive par `on_text`, les appels
+    /// d'outils sont renvoyés complets. Avec `allow_calls` faux, les outils restent décrits
+    /// mais le modèle doit répondre en texte (`tool_choice: none`).
+    fn chat_tools(
+        &self,
+        messages: &[Msg],
+        model: &str,
+        tools: &[ToolDef],
+        allow_calls: bool,
+        on_text: &mut dyn FnMut(&str),
+    ) -> Result<ToolTurn>;
 }
 
 /// Réponse json du modèle désérialisée, avec un nouvel essai (et la demande de correction)
@@ -180,6 +273,17 @@ impl OpenAiCompatibleLlm {
     /// Corps de la requête `chat/completions`.
     pub fn request_body(messages: &[Msg], model: &str, json_mode: bool, stream: bool) -> Value {
         let messages = if json_mode { ensure_json_hint(messages) } else { Cow::Borrowed(messages) };
+        let messages: Vec<Value> = messages
+            .iter()
+            .map(|m| {
+                let mut value = serde_json::to_value(m).unwrap();
+                // un tour d'appels d'outils sans texte a un contenu nul, pas vide
+                if !m.tool_calls.is_empty() && m.content.is_empty() {
+                    value["content"] = Value::Null;
+                }
+                value
+            })
+            .collect();
         let mut body = json!({"model": model, "messages": messages, "temperature": TEMPERATURE});
         if json_mode {
             body["response_format"] = json!({"type": "json_object"});
@@ -190,8 +294,34 @@ impl OpenAiCompatibleLlm {
         body
     }
 
+    /// Corps d'une requête diffusée avec outils.
+    pub fn tools_request_body(messages: &[Msg], model: &str, tools: &[ToolDef], allow_calls: bool) -> Value {
+        let mut body = Self::request_body(messages, model, false, true);
+        if !tools.is_empty() {
+            body["tools"] = tools.iter().map(ToolDef::to_json).collect();
+            body["tool_choice"] = json!(if allow_calls { "auto" } else { "none" });
+        }
+        body
+    }
+
     fn post(&self, body: &Value) -> Result<ureq::http::Response<ureq::Body>> {
         post_json(&self.agent, &format!("{}/chat/completions", self.base_url), &self.api_key, body, "LLM")
+    }
+
+    /// Lit une réponse diffusée (Server-Sent Events) et passe chaque événement à `on_event`.
+    fn read_events(response: ureq::http::Response<ureq::Body>, on_event: &mut dyn FnMut(&Value)) -> Result<()> {
+        let reader = BufReader::new(response.into_body().into_reader());
+        for line in reader.lines() {
+            let line = line.map_err(|e| Error::Llm(format!("Erreur de l'API LLM : {e}")))?;
+            let Some(data) = line.strip_prefix("data:").map(str::trim) else { continue };
+            if data == "[DONE]" {
+                break;
+            }
+            if let Ok(event) = serde_json::from_str::<Value>(data) {
+                on_event(&event);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -209,20 +339,42 @@ impl Llm for OpenAiCompatibleLlm {
 
     fn chat_stream(&self, messages: &[Msg], model: &str, json_mode: bool, on_chunk: &mut dyn FnMut(&str)) -> Result<()> {
         let response = self.post(&Self::request_body(messages, model, json_mode, true))?;
-        let reader = BufReader::new(response.into_body().into_reader());
-        for line in reader.lines() {
-            let line = line.map_err(|e| Error::Llm(format!("Erreur de l'API LLM : {e}")))?;
-            let Some(data) = line.strip_prefix("data:").map(str::trim) else { continue };
-            if data == "[DONE]" {
-                break;
-            }
-            let Ok(event) = serde_json::from_str::<Value>(data) else { continue };
+        Self::read_events(response, &mut |event| {
             if let Some(text) = event["choices"][0]["delta"]["content"].as_str()
                 && !text.is_empty() {
                     on_chunk(text);
                 }
+        })
+    }
+
+    fn chat_tools(
+        &self,
+        messages: &[Msg],
+        model: &str,
+        tools: &[ToolDef],
+        allow_calls: bool,
+        on_text: &mut dyn FnMut(&str),
+    ) -> Result<ToolTurn> {
+        let response = self.post(&Self::tools_request_body(messages, model, tools, allow_calls))?;
+        let mut turn = ToolTurn::default();
+        Self::read_events(response, &mut |event| {
+            let delta = &event["choices"][0]["delta"];
+            if let Some(text) = delta["content"].as_str()
+                && !text.is_empty() {
+                    turn.text.push_str(text);
+                    on_text(text);
+                }
+            for call in delta["tool_calls"].as_array().into_iter().flatten() {
+                merge_tool_call_delta(&mut turn.tool_calls, call);
+            }
+        })?;
+        turn.tool_calls.retain(|c| !c.function.name.is_empty());
+        for (i, call) in turn.tool_calls.iter_mut().enumerate() {
+            if call.id.is_empty() {
+                call.id = format!("call_{i}");
+            }
         }
-        Ok(())
+        Ok(turn)
     }
 }
 
@@ -231,6 +383,10 @@ pub struct DisabledLlm;
 
 impl Llm for DisabledLlm {
     fn chat(&self, _: &[Msg], _: &str, _: bool) -> Result<String> {
+        Err(Error::LlmNotConfigured)
+    }
+
+    fn chat_tools(&self, _: &[Msg], _: &str, _: &[ToolDef], _: bool, _: &mut dyn FnMut(&str)) -> Result<ToolTurn> {
         Err(Error::LlmNotConfigured)
     }
 }
@@ -250,6 +406,9 @@ pub struct LlmCall {
     pub messages: Vec<Msg>,
     pub model: String,
     pub json_mode: bool,
+    /// outils proposés (tool calling natif), vide pour `chat` / `chat_stream`
+    pub tools: Vec<&'static str>,
+    pub allow_calls: bool,
 }
 
 type Responder = Box<dyn Fn(&[Msg], &str) -> String + Send + Sync>;
@@ -259,8 +418,17 @@ enum Responses {
     Func(Responder),
 }
 
+/// Réponse factice de [`FakeLlm::chat_tools`] qui appelle des outils (nom, arguments ; des
+/// arguments donnés en chaîne sont transmis tels quels, même s'ils ne sont pas du json).
+pub fn fake_tool_calls(calls: &[(&str, Value)]) -> String {
+    let calls: Vec<Value> = calls.iter().map(|(name, args)| json!({"name": name, "arguments": args})).collect();
+    json!({"tool_calls": calls}).to_string()
+}
+
 /// Renvoie des réponses prédéfinies (liste ou fonction) et mémorise les appels.
-/// Avec `chunk`, `chat_stream` découpe chaque réponse en morceaux de cette taille.
+/// Avec `chunk`, `chat_stream` et `chat_tools` découpent chaque texte en morceaux de cette
+/// taille. Pour `chat_tools`, une réponse produite par [`fake_tool_calls`] devient des appels
+/// d'outils, toute autre réponse un texte.
 pub struct FakeLlm {
     responses: Mutex<Responses>,
     chunk: usize,
@@ -287,25 +455,64 @@ impl FakeLlm {
     pub fn calls(&self) -> Vec<LlmCall> {
         self.calls.lock().unwrap().clone()
     }
-}
 
-impl Llm for FakeLlm {
-    fn chat(&self, messages: &[Msg], model: &str, json_mode: bool) -> Result<String> {
-        self.calls.lock().unwrap().push(LlmCall { messages: messages.to_vec(), model: model.into(), json_mode });
+    fn respond(&self, call: LlmCall) -> Result<String> {
+        let (messages, model) = (call.messages.clone(), call.model.clone());
+        self.calls.lock().unwrap().push(call);
         match &mut *self.responses.lock().unwrap() {
             Responses::Queue(queue) => queue.pop_front().ok_or_else(|| Error::Llm("FakeLlm : plus de réponse prévue".into())),
-            Responses::Func(f) => Ok(f(messages, model)),
+            Responses::Func(f) => Ok(f(&messages, &model)),
         }
     }
 
-    fn chat_stream(&self, messages: &[Msg], model: &str, json_mode: bool, on_chunk: &mut dyn FnMut(&str)) -> Result<()> {
-        let text = self.chat(messages, model, json_mode)?;
+    fn send_chunks(&self, text: &str, on_chunk: &mut dyn FnMut(&str)) {
         let chars: Vec<char> = text.chars().collect();
         let size = if self.chunk > 0 { self.chunk } else { chars.len().max(1) };
         for piece in chars.chunks(size) {
             on_chunk(&piece.iter().collect::<String>());
         }
+    }
+}
+
+impl Llm for FakeLlm {
+    fn chat(&self, messages: &[Msg], model: &str, json_mode: bool) -> Result<String> {
+        self.respond(LlmCall { messages: messages.to_vec(), model: model.into(), json_mode, tools: Vec::new(), allow_calls: false })
+    }
+
+    fn chat_stream(&self, messages: &[Msg], model: &str, json_mode: bool, on_chunk: &mut dyn FnMut(&str)) -> Result<()> {
+        let text = self.chat(messages, model, json_mode)?;
+        self.send_chunks(&text, on_chunk);
         Ok(())
+    }
+
+    fn chat_tools(
+        &self,
+        messages: &[Msg],
+        model: &str,
+        tools: &[ToolDef],
+        allow_calls: bool,
+        on_text: &mut dyn FnMut(&str),
+    ) -> Result<ToolTurn> {
+        let tools = tools.iter().map(|t| t.name).collect();
+        let raw = self.respond(LlmCall { messages: messages.to_vec(), model: model.into(), json_mode: false, tools, allow_calls })?;
+        if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&raw)
+            && let Some(Value::Array(calls)) = map.get("tool_calls")
+        {
+            let tool_calls = calls
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let arguments = match &c["arguments"] {
+                        Value::String(raw) => raw.clone(),
+                        other => other.to_string(),
+                    };
+                    ToolCall::new(format!("call_{i}"), c["name"].as_str().unwrap_or_default(), arguments)
+                })
+                .collect();
+            return Ok(ToolTurn { text: String::new(), tool_calls });
+        }
+        self.send_chunks(&raw, on_text);
+        Ok(ToolTurn { text: raw, tool_calls: Vec::new() })
     }
 }
 

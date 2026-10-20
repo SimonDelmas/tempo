@@ -39,7 +39,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
    drafts.rs   brouillons (.brouillons/, hors index) → proposition de note et de tâches
    chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
-   llm.rs      client OpenAI-compatible (Vibe, ureq), mode JSON, FakeLlm pour les tests
+   llm.rs      client OpenAI-compatible (Vibe, ureq), mode JSON, tool calling, FakeLlm pour les tests
    de.rs       désérialisation tolérante des réponses du modèle (valeurs par défaut)
    prompts.rs  prompts système (inbox, rapports, imputations, éditeur, chat)
       │ HTTP 127.0.0.1 (/api + interface)
@@ -246,13 +246,18 @@ modèle), les tâches citent la note (`créée depuis [[…]]`), la note les lis
 
 ## Chat
 
-Agent en boucle d'outils (8 étapes au plus) via le mode JSON plutôt que le tool calling
-natif : à chaque étape le modèle demande un outil ou donne sa réponse. Outils de
-consultation : `search_notes`, `read_note`, `list_tasks`, `semantic_search` (si les
-embeddings sont actifs). Outils de proposition, sans écriture : `propose_task`,
-`propose_task_update`, `propose_journal_line`, appliqués un à un par l'utilisateur.
-La réponse finale est diffusée en SSE (champ `answer` extrait du JSON partiel) ; les
-conversations sont conservées côté navigateur. Côté interface, conversations et réponses en
+Agent en boucle d'outils (8 tours au plus) par le tool calling natif de l'API OpenAI
+(`tools`, `tool_calls`, messages `tool`), géré par Vibe y compris en streaming : à chaque tour
+le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour,
+`tool_choice: none` le force à répondre. Chaque outil est décrit par un schéma JSON dont les
+`enum` reprennent `STATUSES`, `PRIORITIES` et les types de notes. Outils de consultation :
+`search_notes`, `read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`,
+`semantic_search` (si les embeddings sont actifs). Outils de proposition, sans écriture :
+`propose_task`, `propose_task_update`, `propose_journal_line`, appliqués un à un par
+l'utilisateur. Le texte du modèle est diffusé en SSE (`delta`) ; s'il précède des appels
+d'outils, un événement `reset` l'efface. Les conversations sont conservées côté navigateur
+(texte seulement : les appels d'outils des tours précédents ne sont pas renvoyés au
+modèle). Côté interface, conversations et réponses en
 cours sont tenues au niveau de l'application (`useChats` dans `chats.ts`), pas dans la vue :
 la diffusion survit au changement d'espace, plusieurs conversations peuvent attendre une
 réponse en même temps, et une réponse terminée hors de vue marque la conversation `unread`
@@ -280,6 +285,8 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Chat : réponses poursuivies en arrière-plan, notification et non-lus à la fin d'une réponse hors de vue
+- [x] Chat : tool calling natif (schémas JSON des outils, appels parallèles) à la place du mode json
+- [ ] Chat : propositions typées (une variante par opération) et outils couvrant toutes les actions de l'application (notes, liens, inbox, imputations, rapports, backlog)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)

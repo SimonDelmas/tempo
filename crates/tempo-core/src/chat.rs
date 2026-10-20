@@ -1,17 +1,16 @@
 //! Chat avec l'agent : boucle d'appels d'outils sur les notes et les tâches.
 //!
-//! Le protocole passe par le mode json (déjà éprouvé avec Vibe) plutôt que par le tool calling
-//! natif : à chaque étape le modèle demande un outil ou donne sa réponse finale. Les outils de
-//! consultation sont en lecture seule ; les outils de proposition n'écrivent rien, ils préparent
-//! des modifications que l'utilisateur valide une à une (`ChatService::apply`).
+//! Le protocole est le tool calling natif de l'API OpenAI : à chaque tour le modèle appelle un
+//! ou plusieurs outils, ou répond en texte. Les outils de consultation sont en lecture seule ;
+//! les outils de proposition n'écrivent rien, ils préparent des modifications que l'utilisateur
+//! valide une à une (`ChatService::apply`).
 //!
-//! La réponse finale est diffusée au fil de l'eau : le texte du champ "answer" est extrait du
-//! json partiel reçu du modèle.
+//! Le texte du modèle est diffusé au fil de l'eau ; s'il précède des appels d'outils, un
+//! événement `reset` l'efface de la réponse en cours.
 
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use chrono::{Datelike, NaiveDate};
-use regex::Regex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -20,7 +19,7 @@ use crate::config::Settings;
 use crate::error::{not_found, vault_err, Error, Result};
 use crate::index::{extract_links, Index, NoteRow};
 use crate::journal::JournalService;
-use crate::llm::{chat_json, extract_json, Llm, Msg};
+use crate::llm::{Llm, Msg, ToolDef};
 use crate::prompts::CHAT_SYSTEM;
 use crate::semantic::SemanticIndex;
 use crate::tasks::{NewTask, TaskService, PRIORITIES, STATUSES};
@@ -32,9 +31,8 @@ const MAX_NOTE_CHARS: usize = 8000;
 const MAX_RESULT_CHARS: usize = 12000;
 const MAX_HISTORY: usize = 20;
 const WEEKDAYS: [&str; 7] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
-
-static ACTION_ANSWER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""action"\s*:\s*"answer""#).unwrap());
-static ANSWER_START_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""answer"\s*:\s*""#).unwrap());
+/// types proposés à `list_notes` (les tâches ont leur propre outil)
+const LISTED_KINDS: [&str; 9] = ["reunion", "echange", "journal", "sujet", "projet", "personne", "ressource", "formation", "rapport"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -53,24 +51,6 @@ impl ChatMessage {
     pub fn user(content: &str) -> Self {
         ChatMessage { role: Role::User, content: content.into() }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum StepAction {
-    Tool,
-    Answer,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AgentStep {
-    action: StepAction,
-    #[serde(default)]
-    tool: Option<String>,
-    #[serde(default)]
-    args: Map<String, Value>,
-    #[serde(default)]
-    answer: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -140,78 +120,16 @@ fn check_choice(field: &str, value: Option<String>, allowed: &[&str]) -> Result<
     }
 }
 
-/// Décode le début d'une chaîne json (sans le guillemet ouvrant), même incomplète.
-pub fn decode_partial_string(raw: &str) -> String {
-    let chars: Vec<char> = raw.chars().collect();
-    let hex_at = |i: usize| -> Option<u32> {
-        if i + 4 > chars.len() {
-            return None;
-        }
-        u32::from_str_radix(&chars[i..i + 4].iter().collect::<String>(), 16).ok()
-    };
-    let mut out = String::new();
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        if c == '"' {
-            break;
-        }
-        if c != '\\' {
-            out.push(c);
-            i += 1;
-            continue;
-        }
-        let Some(&escape) = chars.get(i + 1) else { break };
-        if escape == 'u' {
-            if i + 6 > chars.len() {
-                break;
-            }
-            match hex_at(i + 2) {
-                // paire de substitution UTF-16
-                Some(high @ 0xD800..=0xDBFF) => {
-                    if i + 12 > chars.len() {
-                        break;
-                    }
-                    if chars[i + 6] == '\\' && chars[i + 7] == 'u'
-                        && let Some(low @ 0xDC00..=0xDFFF) = hex_at(i + 8) {
-                            if let Some(c) = char::from_u32(0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)) {
-                                out.push(c);
-                            }
-                            i += 12;
-                            continue;
-                        }
-                    i += 6;
-                }
-                Some(code) => {
-                    if let Some(c) = char::from_u32(code) {
-                        out.push(c);
-                    }
-                    i += 6;
-                }
-                None => i += 6,
-            }
-            continue;
-        }
-        out.push(match escape {
-            'n' => '\n',
-            't' => '\t',
-            'r' => '\r',
-            'b' => '\u{8}',
-            'f' => '\u{c}',
-            other => other,
-        });
-        i += 2;
+/// Arguments d'un appel d'outil, reçus en json (une chaîne vide vaut un objet vide).
+fn parse_arguments(raw: &str) -> std::result::Result<Map<String, Value>, String> {
+    if raw.trim().is_empty() {
+        return Ok(Map::new());
     }
-    out
-}
-
-/// Texte de la réponse finale contenu dans un json encore incomplet, ou None si ce n'est pas
-/// (encore) une réponse finale.
-pub fn partial_answer(raw: &str) -> Option<String> {
-    if !ACTION_ANSWER_RE.is_match(raw) {
-        return None;
+    match serde_json::from_str::<Value>(raw) {
+        Ok(Value::Object(args)) => Ok(args),
+        Ok(_) => Err("un objet json est attendu".into()),
+        Err(exc) => Err(format!("json illisible : {exc}")),
     }
-    ANSWER_START_RE.find(raw).map(|m| decode_partial_string(&raw[m.end()..]))
 }
 
 // --- arguments des outils (un argument inconnu ou manquant est une erreur) ---------
@@ -301,36 +219,70 @@ enum ToolOutput {
     Proposal(ChatProposal),
 }
 
-const TOOLS: [(&str, &str); 6] = [
-    ("search_notes", r#"{"query": "mots-clés"} — recherche plein texte dans toutes les notes"#),
-    ("read_note", r#"{"name": "lien ou chemin"} — contenu d'une note (ou tâche), avec les notes qui la mentionnent"#),
-    (
-        "list_notes",
-        r#"{"type": "reunion|echange|journal|sujet|projet|personne|ressource|formation|rapport" (optionnel), "start": "AAAA-MM-JJ" (optionnel), "end": "AAAA-MM-JJ" (optionnel)} — notes datées sur une période"#,
-    ),
-    (
-        "list_tasks",
-        r#"{"status": "a_faire|en_cours|attente|bloquee|terminee" (optionnel), "project": "identifiant" (optionnel)} — liste des tâches"#,
-    ),
-    ("get_task", r#"{"id": "T-001"} — fiche complète d'une tâche et son historique"#),
-    (
-        "task_events",
-        r#"{"start": "AAAA-MM-JJ", "end": "AAAA-MM-JJ"} — événements d'historique des tâches sur une période (créations, statuts, notes)"#,
-    ),
-];
-const SEMANTIC_TOOL: (&str, &str) =
-    ("semantic_search", r#"{"query": "question ou idée"} — recherche par le sens (notes proches même sans les mêmes mots)"#);
-const PROPOSAL_TOOLS: [(&str, &str); 3] = [
-    (
-        "propose_task",
-        r#"{"title": "...", "description": "..." (optionnel), "project": "identifiant" (optionnel), "priority": "basse|normale|haute" (optionnel), "due": "AAAA-MM-JJ" (optionnel)} — nouvelle tâche"#,
-    ),
-    (
-        "propose_task_update",
-        r#"{"task_id": "T-001", "status": "a_faire|en_cours|attente|bloquee|terminee" (optionnel), "priority": "..." (optionnel), "due": "AAAA-MM-JJ" (optionnel), "note": "ce qui a changé" (optionnel)} — mise à jour d'une tâche existante, tracée dans son historique"#,
-    ),
-    ("propose_journal_line", r#"{"line": "texte"} — ligne à ajouter au journal du jour"#),
-];
+// --- définition des outils (schémas json des arguments) ---------------------------
+
+fn text(description: &str) -> Value {
+    json!({"type": "string", "description": description})
+}
+
+fn date(description: &str) -> Value {
+    json!({"type": "string", "format": "date", "description": format!("{description} (AAAA-MM-JJ)")})
+}
+
+fn choice(values: &[&str]) -> Value {
+    json!({"type": "string", "enum": values})
+}
+
+/// Schéma d'un objet d'arguments : `required` liste les arguments obligatoires.
+fn object(required: &[&str], properties: Value) -> Value {
+    json!({"type": "object", "properties": properties, "required": required, "additionalProperties": false})
+}
+
+fn tool(name: &'static str, description: &str, parameters: Value) -> ToolDef {
+    ToolDef { name, description: description.into(), parameters }
+}
+
+/// Outils de consultation, en lecture seule.
+fn read_tools() -> Vec<ToolDef> {
+    vec![
+        tool("search_notes", "Recherche plein texte dans toutes les notes (porte sur des mots).",
+             object(&["query"], json!({"query": text("mots-clés")}))),
+        tool("read_note", "Contenu d'une note (ou d'une tâche), avec les notes qui la mentionnent.",
+             object(&["name"], json!({"name": text("lien [[…]], nom ou chemin de la note")}))),
+        tool("list_notes", "Notes datées sur une période, éventuellement d'un type donné.",
+             object(&[], json!({"type": choice(&LISTED_KINDS), "start": date("début"), "end": date("fin")}))),
+        tool("list_tasks", "Liste des tâches, filtrée par statut ou projet.",
+             object(&[], json!({"status": choice(&STATUSES), "project": text("identifiant du projet")}))),
+        tool("get_task", "Fiche complète d'une tâche et son historique.",
+             object(&["id"], json!({"id": text("identifiant, ex. T-001")}))),
+        tool("task_events", "Événements d'historique des tâches sur une période (créations, statuts, notes).",
+             object(&["start", "end"], json!({"start": date("début"), "end": date("fin")}))),
+    ]
+}
+
+fn semantic_tool() -> ToolDef {
+    tool("semantic_search", "Recherche par le sens : notes proches d'une question ou d'une idée, même sans les mêmes mots.",
+         object(&["query"], json!({"query": text("question ou idée")})))
+}
+
+/// Outils de proposition : rien n'est écrit, l'utilisateur valide chaque proposition.
+fn proposal_tools() -> Vec<ToolDef> {
+    const PROPOSAL: &str = "Proposition soumise à la validation de l'utilisateur (rien n'est modifié) : ";
+    vec![
+        tool("propose_task", &format!("{PROPOSAL}nouvelle tâche."),
+             object(&["title"], json!({
+                 "title": text("verbe à l'infinitif + objet, court"), "description": text("contexte utile"),
+                 "project": text("identifiant du projet"), "priority": choice(&PRIORITIES), "due": date("échéance"),
+             }))),
+        tool("propose_task_update", &format!("{PROPOSAL}mise à jour d'une tâche existante, tracée dans son historique."),
+             object(&["task_id"], json!({
+                 "task_id": text("identifiant, ex. T-001"), "status": choice(&STATUSES), "priority": choice(&PRIORITIES),
+                 "due": date("échéance"), "note": text("ce qui a changé"),
+             }))),
+        tool("propose_journal_line", &format!("{PROPOSAL}ligne à ajouter au journal du jour."),
+             object(&["line"], json!({"line": text("texte de la ligne")}))),
+    ]
+}
 
 pub struct ChatService {
     vault: Arc<Vault>,
@@ -355,17 +307,18 @@ impl ChatService {
         ChatService { vault, index, tasks, journal, llm, settings, semantic: semantic.filter(|s| s.enabled()) }
     }
 
-    /// Outils de consultation disponibles (avec la recherche sémantique si elle est active).
-    fn tools(&self) -> Vec<(&'static str, &'static str)> {
-        let mut tools = TOOLS.to_vec();
+    /// Outils proposés au modèle (avec la recherche sémantique si elle est active).
+    pub fn tools(&self) -> Vec<ToolDef> {
+        let mut tools = read_tools();
         if self.semantic.is_some() {
-            tools.push(SEMANTIC_TOOL);
+            tools.push(semantic_tool());
         }
+        tools.extend(proposal_tools());
         tools
     }
 
     pub fn tool_names(&self) -> Vec<&'static str> {
-        self.tools().into_iter().chain(PROPOSAL_TOOLS).map(|(name, _)| name).collect()
+        self.tools().into_iter().map(|t| t.name).collect()
     }
 
     // --- outils -------------------------------------------------------------
@@ -506,11 +459,12 @@ impl ChatService {
     fn propose_task_update(&self, args: ProposeUpdateArgs) -> Result<ChatProposal> {
         let task = self.tasks.get(&args.task_id)?.task;
         let mut proposal = ChatProposal::new(ProposalKind::UpdateTask);
+        // le modèle renvoie souvent les valeurs inchangées : seules les vraies modifications restent
+        proposal.status = check_choice("status", args.status, &STATUSES)?.filter(|s| *s != task.status);
+        proposal.priority = check_choice("priority", args.priority, &PRIORITIES)?.filter(|p| *p != task.priority);
+        proposal.due = check_date(args.due.as_deref())?.filter(|d| Some(d) != task.due.as_ref());
         proposal.task_id = Some(task.id);
         proposal.title = task.title;
-        proposal.status = check_choice("status", args.status, &STATUSES)?;
-        proposal.priority = check_choice("priority", args.priority, &PRIORITIES)?;
-        proposal.due = check_date(args.due.as_deref())?;
         proposal.note = args.note.unwrap_or_default().trim().to_string();
         if proposal.status.is_none() && proposal.priority.is_none() && proposal.due.is_none() && proposal.note.is_empty() {
             return Err(vault_err("Aucune modification proposée"));
@@ -643,12 +597,9 @@ impl ChatService {
     // --- conversation -------------------------------------------------------
 
     pub fn system_prompt(&self, today_date: NaiveDate) -> String {
-        let describe = |tools: Vec<(&str, &str)>| tools.iter().map(|(n, d)| format!("- {n} {d}")).collect::<Vec<_>>().join("\n");
         CHAT_SYSTEM
             .replace("{today}", &today_date.to_string())
             .replace("{weekday}", WEEKDAYS[today_date.weekday().num_days_from_monday() as usize])
-            .replace("{tools}", &describe(self.tools()))
-            .replace("{proposals}", &describe(PROPOSAL_TOOLS.to_vec()))
     }
 
     /// Liens [[…]] de la réponse résolus en chemins (les liens inconnus sont omis).
@@ -662,60 +613,56 @@ impl ChatService {
         Ok(links)
     }
 
-    /// Étape suivante du modèle ; le texte de la réponse finale est transmis au fil de l'eau.
-    fn next_step(&self, messages: &[Msg], on_delta: &mut dyn FnMut(String)) -> Result<AgentStep> {
-        let mut raw = String::new();
-        let mut sent = 0;
-        self.llm.chat_stream(messages, &self.settings.model_smart, true, &mut |chunk| {
-            raw.push_str(chunk);
-            if let Some(text) = partial_answer(&raw) {
-                let count = text.chars().count();
-                if count > sent {
-                    on_delta(text.chars().skip(sent).collect());
-                    sent = count;
-                }
-            }
-        })?;
-        match serde_json::from_str::<AgentStep>(&extract_json(&raw)) {
-            Ok(step) => Ok(step),
-            // json invalide : nouvel essai non diffusé (avec demande de correction)
-            Err(_) => chat_json(self.llm.as_ref(), messages, &self.settings.model_smart),
-        }
-    }
-
-    /// Événements de la réponse : step (outil appelé), delta (texte de la réponse), done.
+    /// Événements de la réponse : step (outil appelé), delta (texte de la réponse), reset (le
+    /// texte diffusé précédait des appels d'outils : il est effacé), done.
     pub fn stream(&self, history: &[ChatMessage], today_date: Option<NaiveDate>, emit: &mut dyn FnMut(Value)) -> Result<()> {
         let mut messages = vec![Msg::system(self.system_prompt(today_date.unwrap_or_else(today)))];
         let skip = history.len().saturating_sub(MAX_HISTORY);
         messages.extend(history[skip..].iter().map(|m| {
             Msg::new(if m.role == Role::User { "user" } else { "assistant" }, m.content.clone())
         }));
+        let tools = self.tools();
         let mut steps: Vec<Value> = Vec::new();
         let mut proposals: Vec<ChatProposal> = Vec::new();
-        let mut last: Option<AgentStep> = None;
-        for attempt in 0..=MAX_STEPS {
-            if attempt == MAX_STEPS {
+        let mut answer = String::new();
+        for turn in 0..=MAX_STEPS {
+            // dernier tour : les outils restent décrits mais le modèle doit répondre
+            let last = turn == MAX_STEPS;
+            if last {
                 messages.push(Msg::user(
                     "Nombre maximal d'outils atteint : donne maintenant ta réponse finale avec ce que tu as trouvé.",
                 ));
             }
-            let step = self.next_step(&messages, &mut |text| emit(json!({"type": "delta", "text": text})))?;
-            if step.action == StepAction::Answer || attempt == MAX_STEPS {
-                last = Some(step);
+            let reply = self.llm.chat_tools(&messages, &self.settings.model_smart, &tools, !last, &mut |text| {
+                emit(json!({"type": "delta", "text": text}))
+            })?;
+            if reply.tool_calls.is_empty() || last {
+                answer = reply.text;
                 break;
             }
-            let result = self.run_tool(step.tool.as_deref(), &step.args, &mut proposals)?;
-            let summary = (result.starts_with("Erreur") || result.starts_with("Aucun")).then(|| result.clone());
-            let record = json!({"tool": step.tool, "args": step.args, "summary": summary});
-            let mut event = json!({"type": "step"});
-            event.as_object_mut().unwrap().extend(record.as_object().unwrap().clone());
-            emit(event);
-            steps.push(record);
-            messages.push(Msg::assistant(json!({"action": "tool", "tool": step.tool, "args": step.args}).to_string()));
-            messages.push(Msg::user(format!("Résultat de {} :\n{result}", step.tool.as_deref().unwrap_or(""))));
-            last = Some(step);
+            if !reply.text.is_empty() {
+                emit(json!({"type": "reset"}));
+            }
+            messages.push(Msg::assistant_tools(reply.text, reply.tool_calls.clone()));
+            for call in reply.tool_calls {
+                let name = call.function.name;
+                let (args, result) = match parse_arguments(&call.function.arguments) {
+                    Ok(args) => {
+                        let result = self.run_tool(Some(&name), &args, &mut proposals)?;
+                        (Value::Object(args), result)
+                    }
+                    Err(message) => (Value::String(call.function.arguments), format!("Erreur : arguments invalides pour {name} ({message}).")),
+                };
+                let summary = (result.starts_with("Erreur") || result.starts_with("Aucun")).then(|| result.clone());
+                let record = json!({"tool": name, "args": args, "summary": summary});
+                let mut event = json!({"type": "step"});
+                event.as_object_mut().unwrap().extend(record.as_object().unwrap().clone());
+                emit(event);
+                steps.push(record);
+                messages.push(Msg::tool(&call.id, result));
+            }
         }
-        let answer = last.map(|s| s.answer.trim().to_string()).filter(|a| !a.is_empty());
+        let answer = Some(answer.trim().to_string()).filter(|a| !a.is_empty());
         let answer = answer.unwrap_or_else(|| "Je n'ai pas de réponse à proposer.".into());
         emit(json!({"type": "done", "links": self.links_of(&answer)?, "answer": answer, "steps": steps,
                     "proposals": proposals}));
@@ -732,23 +679,5 @@ impl ChatService {
         })?;
         done.as_object_mut().map(|o| o.shift_remove("type"));
         Ok(done)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn partial() {
-        assert_eq!(partial_answer(r#"{"action": "tool", "tool": "x""#), None);
-        assert_eq!(partial_answer(r#"{"action": "answer", "answer": "Bon"#).as_deref(), Some("Bon"));
-        assert_eq!(
-            partial_answer(r#"{"action": "answer", "answer": "a\nb \"c\" é"#).as_deref(),
-            Some("a\nb \"c\" é")
-        );
-        assert_eq!(partial_answer(r#"{"action": "answer", "answer": "fin", "x": 1}"#).as_deref(), Some("fin"));
-        assert_eq!(partial_answer(r#"{"action": "answer", "answer": "coupé \"#).as_deref(), Some("coupé "));
-        assert_eq!(partial_answer(r#"{"action": "answer", "answer": "😀 \ud83d"#).as_deref(), Some("😀 "));
     }
 }

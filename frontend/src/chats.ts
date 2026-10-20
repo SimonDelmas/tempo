@@ -123,6 +123,7 @@ export function useChats({ onCreated, onFinished }: ChatEvents) {
     try {
       const reply = await api.chatStream(history, (event) => {
         if (event.type === "delta") update((l) => ({ ...l, text: l.text + event.text }));
+        if (event.type === "reset") update((l) => ({ ...l, text: "" }));
         if (event.type === "step") {
           const { type: _, ...step } = event;
           update((l) => ({ ...l, steps: [...l.steps, step] }));

@@ -6,14 +6,15 @@ use chrono::NaiveDate;
 use common::{Ctx, TestApp};
 use serde_json::{json, Map, Value};
 use tempo_core::chat::{ChatMessage, ChatProposal, ChatService, ProposalKind, MAX_STEPS};
-use tempo_core::llm::FakeLlm;
+use tempo_core::error::Result;
+use tempo_core::llm::{fake_tool_calls, FakeLlm, Llm, Msg, ToolCall, ToolDef, ToolTurn};
 
 fn tool(name: &str, args: Value) -> String {
-    json!({"action": "tool", "tool": name, "args": args}).to_string()
+    fake_tool_calls(&[(name, args)])
 }
 
 fn answer(text: &str) -> String {
-    json!({"action": "answer", "answer": text}).to_string()
+    text.to_string()
 }
 
 fn make_chat(c: &Ctx, llm: Arc<FakeLlm>) -> ChatService {
@@ -74,10 +75,41 @@ fn agent_loop_calls_tools_then_answers() {
     assert_eq!(tools, vec!["search_notes", "read_note"]);
     assert_eq!(result["links"], json!({"2026-10-15-copil-sap": "reunions/2026/2026-10-15-copil-sap.md"}));
     let calls = llm.calls();
-    let system = &calls[0].messages[0].content;
-    assert!(system.contains("2026-10-19 (lundi)") && system.contains("task_events"));
-    assert!(calls.last().unwrap().messages.last().unwrap().content.starts_with("Résultat de read_note"));
-    assert!(calls.iter().all(|c| c.json_mode));
+    assert!(calls[0].messages[0].content.contains("2026-10-19 (lundi)"));
+    assert!(calls.iter().all(|c| c.tools.contains(&"task_events") && c.tools.contains(&"propose_task") && c.allow_calls));
+    // l'appel du modèle puis le résultat de l'outil, reliés par l'identifiant de l'appel
+    let messages = &calls.last().unwrap().messages;
+    let (call, result) = (&messages[messages.len() - 2], messages.last().unwrap());
+    assert_eq!((call.role.as_str(), call.tool_calls[0].function.name.as_str()), ("assistant", "read_note"));
+    assert_eq!((result.role.as_str(), result.tool_call_id.as_ref()), ("tool", Some(&call.tool_calls[0].id)));
+    assert!(result.content.contains("Décisions"));
+}
+
+#[test]
+fn agent_loop_runs_parallel_tool_calls() {
+    let c = common::ctx();
+    let llm = FakeLlm::new([
+        fake_tool_calls(&[("list_tasks", json!({"project": "sap"})), ("get_task", json!({"id": "T-003"}))]),
+        answer("Voici le point."),
+    ]);
+    let chat = make_chat(&c, llm.clone());
+    let result = ask(&chat, "Point sur sap et T-003 ?");
+    let tools: Vec<&str> = result["steps"].as_array().unwrap().iter().map(|s| s["tool"].as_str().unwrap()).collect();
+    assert_eq!(tools, vec!["list_tasks", "get_task"]);
+    let messages = &llm.calls()[1].messages;
+    let results: Vec<_> = messages.iter().filter(|m| m.role == "tool").map(|m| m.tool_call_id.clone().unwrap()).collect();
+    assert_eq!(results, vec!["call_0", "call_1"]);
+}
+
+#[test]
+fn invalid_arguments_are_returned_to_the_model() {
+    let c = common::ctx();
+    let llm = FakeLlm::new([tool("read_note", json!("{\"name\": ")), answer("Rattrapé")]);
+    let chat = make_chat(&c, llm.clone());
+    let result = ask(&chat, "?");
+    assert_eq!(result["answer"], "Rattrapé");
+    assert!(result["steps"][0]["summary"].as_str().unwrap().starts_with("Erreur : arguments invalides pour read_note"));
+    assert_eq!(result["steps"][0]["args"], "{\"name\": ");
 }
 
 #[test]
@@ -90,7 +122,9 @@ fn agent_loop_stops_after_max_steps() {
     let result = ask(&chat, "Mes tâches ?");
     assert_eq!(result["steps"].as_array().unwrap().len(), MAX_STEPS);
     assert_eq!(result["answer"], "Voici les tâches.");
-    assert!(llm.calls().last().unwrap().messages.last().unwrap().content.contains("Nombre maximal"));
+    let last = llm.calls().last().unwrap().clone();
+    assert!(last.messages.last().unwrap().content.contains("Nombre maximal"));
+    assert!(!last.allow_calls); // tool_choice: none au dernier tour
 }
 
 #[test]
@@ -99,7 +133,7 @@ fn proposals_are_validated_and_returned() {
     let llm = FakeLlm::new([
         tool("propose_task", json!({"title": "Préparer la recette", "project": "sap", "due": "2026-10-27"})),
         tool("propose_task_update", json!({"task_id": "T-003", "status": "inconnu"})),
-        tool("propose_task_update", json!({"task_id": "T-003", "status": "en_cours", "note": "accès obtenus"})),
+        tool("propose_task_update", json!({"task_id": "T-003", "status": "en_cours", "priority": "haute", "note": "accès obtenus"})),
         tool("propose_journal_line", json!({"line": "Point recette avec Marc"})),
         answer("Je propose une tâche, une mise à jour de [[T-003]] et une ligne de journal."),
     ]);
@@ -110,6 +144,8 @@ fn proposals_are_validated_and_returned() {
     let kinds: Vec<&str> = result["proposals"].as_array().unwrap().iter().map(|p| p["kind"].as_str().unwrap()).collect();
     assert_eq!(kinds, vec!["create_task", "update_task", "journal"]);
     assert_eq!(result["proposals"][1]["title"], "Obtenir les accès production SAP");
+    // priorité déjà « haute » : pas une modification
+    assert_eq!((&result["proposals"][1]["status"], &result["proposals"][1]["priority"]), (&json!("en_cours"), &Value::Null));
     assert!(result["steps"][1]["summary"].as_str().unwrap().starts_with("Erreur : status invalide"));
 }
 
@@ -159,10 +195,36 @@ fn stream_emits_steps_deltas_and_done() {
 }
 
 #[test]
-fn stream_recovers_from_invalid_json() {
+fn stream_resets_text_before_tool_calls() {
+    // texte puis appels d'outils dans le même tour : le texte diffusé est effacé
+    struct Preamble;
+    impl Llm for Preamble {
+        fn chat(&self, _: &[Msg], _: &str, _: bool) -> Result<String> {
+            unreachable!()
+        }
+        fn chat_tools(
+            &self,
+            messages: &[Msg],
+            _: &str,
+            _: &[ToolDef],
+            _: bool,
+            on_text: &mut dyn FnMut(&str),
+        ) -> Result<ToolTurn> {
+            let first = !messages.iter().any(|m| m.role == "tool");
+            let text = if first { "Je regarde…" } else { "Fini." };
+            on_text(text);
+            let tool_calls =
+                if first { vec![ToolCall::new("c1", "list_tasks", "{}")] } else { Vec::new() };
+            Ok(ToolTurn { text: text.into(), tool_calls })
+        }
+    }
     let c = common::ctx();
-    let chat = make_chat(&c, FakeLlm::new(["pas du json".to_string(), answer("Rattrapé")]));
-    assert_eq!(ask(&chat, "?")["answer"], "Rattrapé");
+    let chat = ChatService::new(c.vault.clone(), c.index.clone(), c.tasks.clone(), c.journal.clone(), Arc::new(Preamble), c.settings.clone(), None);
+    let mut events = Vec::new();
+    chat.stream(&[ChatMessage::user("?")], None, &mut |e| events.push(e)).unwrap();
+    let types: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();
+    assert_eq!(types, vec!["delta", "reset", "step", "delta", "done"]);
+    assert_eq!(events.last().unwrap()["answer"], "Fini.");
 }
 
 #[tokio::test]
