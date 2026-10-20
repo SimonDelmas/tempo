@@ -1,6 +1,7 @@
 //! Client LLM : API compatible OpenAI (Vibe) + implémentation factice pour les tests.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -255,6 +256,27 @@ pub fn post_json(
     Ok(response)
 }
 
+/// Tentatives au plus quand l'API signale un dépassement de quota.
+const RATE_LIMIT_ATTEMPTS: u32 = 4;
+/// Attente maximale entre deux tentatives.
+const RATE_LIMIT_MAX_WAIT: u64 = 30;
+
+/// Délai avant de relancer si `message` signale un dépassement de quota : celui indiqué par
+/// l'API (« retry after 20 seconds ») ou, à défaut, 2, 4, 8 s selon la tentative.
+fn rate_limit_wait(message: &str, attempt: u32) -> Option<Duration> {
+    let lower = message.to_lowercase();
+    if !(lower.contains("http 429") || lower.contains("rate limit")) {
+        return None;
+    }
+    let hinted = lower
+        .split("retry after ")
+        .nth(1)
+        .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+        .and_then(|n| n.parse::<u64>().ok());
+    let secs = hinted.unwrap_or(2u64.pow(attempt));
+    Some(Duration::from_secs(secs.clamp(1, RATE_LIMIT_MAX_WAIT)))
+}
+
 pub struct OpenAiCompatibleLlm {
     agent: ureq::Agent,
     base_url: String,
@@ -308,6 +330,27 @@ impl OpenAiCompatibleLlm {
         post_json(&self.agent, &format!("{}/chat/completions", self.base_url), &self.api_key, body, "LLM")
     }
 
+    /// Relance `call` tant que l'API signale un dépassement de quota (HTTP 429 ou erreur dans le
+    /// flux), en attendant le délai qu'elle indique ; jamais après qu'un texte a été transmis.
+    fn retry_rate_limited<T>(emitted: &Cell<bool>, mut call: impl FnMut() -> Result<T>) -> Result<T> {
+        let mut attempt = 1;
+        loop {
+            match call() {
+                Err(Error::Llm(message)) => {
+                    let Some(wait) = rate_limit_wait(&message, attempt) else { return Err(Error::Llm(message)) };
+                    if attempt >= RATE_LIMIT_ATTEMPTS || emitted.get() {
+                        return Err(Error::Llm(format!(
+                            "Quota de l'API LLM dépassé (jetons par minute) : réessayez dans un instant. {message}"
+                        )));
+                    }
+                    std::thread::sleep(wait);
+                    attempt += 1;
+                }
+                other => return other,
+            }
+        }
+    }
+
     /// Lit une réponse diffusée (Server-Sent Events) et passe chaque événement à `on_event`.
     fn read_events(response: ureq::http::Response<ureq::Body>, on_event: &mut dyn FnMut(&Value)) -> Result<()> {
         let reader = BufReader::new(response.into_body().into_reader());
@@ -331,23 +374,29 @@ impl OpenAiCompatibleLlm {
 
 impl Llm for OpenAiCompatibleLlm {
     fn chat(&self, messages: &[Msg], model: &str, json_mode: bool) -> Result<String> {
-        let response = self.post(&Self::request_body(messages, model, json_mode, false))?;
-        let text = response
-            .into_body()
-            .read_to_string()
-            .map_err(|e| Error::Llm(format!("Erreur de l'API LLM : {e}")))?;
+        let body = Self::request_body(messages, model, json_mode, false);
+        let text = Self::retry_rate_limited(&Cell::new(false), || {
+            self.post(&body)?
+                .into_body()
+                .read_to_string()
+                .map_err(|e| Error::Llm(format!("Erreur de l'API LLM : {e}")))
+        })?;
         let data: Value =
             serde_json::from_str(&text).map_err(|e| Error::Llm(format!("Erreur de l'API LLM : réponse illisible ({e})")))?;
         Ok(data["choices"][0]["message"]["content"].as_str().unwrap_or_default().to_string())
     }
 
     fn chat_stream(&self, messages: &[Msg], model: &str, json_mode: bool, on_chunk: &mut dyn FnMut(&str)) -> Result<()> {
-        let response = self.post(&Self::request_body(messages, model, json_mode, true))?;
-        Self::read_events(response, &mut |event| {
-            if let Some(text) = event["choices"][0]["delta"]["content"].as_str()
-                && !text.is_empty() {
-                    on_chunk(text);
-                }
+        let body = Self::request_body(messages, model, json_mode, true);
+        let emitted = Cell::new(false);
+        Self::retry_rate_limited(&emitted, || {
+            Self::read_events(self.post(&body)?, &mut |event| {
+                if let Some(text) = event["choices"][0]["delta"]["content"].as_str()
+                    && !text.is_empty() {
+                        emitted.set(true);
+                        on_chunk(text);
+                    }
+            })
         })
     }
 
@@ -359,18 +408,23 @@ impl Llm for OpenAiCompatibleLlm {
         allow_calls: bool,
         on_text: &mut dyn FnMut(&str),
     ) -> Result<ToolTurn> {
-        let response = self.post(&Self::tools_request_body(messages, model, tools, allow_calls))?;
-        let mut turn = ToolTurn::default();
-        Self::read_events(response, &mut |event| {
-            let delta = &event["choices"][0]["delta"];
-            if let Some(text) = delta["content"].as_str()
-                && !text.is_empty() {
-                    turn.text.push_str(text);
-                    on_text(text);
+        let body = Self::tools_request_body(messages, model, tools, allow_calls);
+        let emitted = Cell::new(false);
+        let mut turn = Self::retry_rate_limited(&emitted, || {
+            let mut turn = ToolTurn::default();
+            Self::read_events(self.post(&body)?, &mut |event| {
+                let delta = &event["choices"][0]["delta"];
+                if let Some(text) = delta["content"].as_str()
+                    && !text.is_empty() {
+                        emitted.set(true);
+                        turn.text.push_str(text);
+                        on_text(text);
+                    }
+                for call in delta["tool_calls"].as_array().into_iter().flatten() {
+                    merge_tool_call_delta(&mut turn.tool_calls, call);
                 }
-            for call in delta["tool_calls"].as_array().into_iter().flatten() {
-                merge_tool_call_delta(&mut turn.tool_calls, call);
-            }
+            })?;
+            Ok(turn)
         })?;
         turn.tool_calls.retain(|c| !c.function.name.is_empty());
         for (i, call) in turn.tool_calls.iter_mut().enumerate() {
@@ -535,6 +589,15 @@ mod tests {
         let already = vec![Msg::user("un objet json")];
         assert!(matches!(ensure_json_hint(&already), Cow::Borrowed(_)));
         assert_eq!(ensure_json_hint(&[Msg::system("x")]).last().unwrap().role, "user");
+    }
+
+    #[test]
+    fn rate_limit_wait_follows_api_hint() {
+        let azure = "Erreur de l'API LLM : Your requests to gpt-6-luna have exceeded token rate limit. Please retry after 20 seconds.";
+        assert_eq!(rate_limit_wait(azure, 1), Some(Duration::from_secs(20)));
+        assert_eq!(rate_limit_wait("Erreur de l'API LLM : exceeded token rate limit", 2), Some(Duration::from_secs(4)));
+        assert_eq!(rate_limit_wait("Erreur de l'API LLM : HTTP 429 Too Many Requests retry after 600 s", 1), Some(Duration::from_secs(30)));
+        assert_eq!(rate_limit_wait("Erreur de l'API LLM : HTTP 500 Internal Server Error", 1), None);
     }
 
     #[test]

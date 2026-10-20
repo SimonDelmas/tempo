@@ -10,36 +10,43 @@ use tempo_core::llm::{chat_json, Llm, Msg, OpenAiCompatibleLlm, ToolCall, ToolDe
 
 /// Serveur d'une seule requête : renvoie (corps reçu, chemin) et répond `response`.
 fn serve_once(content_type: &'static str, response: String) -> (String, mpsc::Receiver<(String, Value)>) {
+    serve(content_type, vec![response])
+}
+
+/// Serveur qui répond `responses` dans l'ordre, une par requête.
+fn serve(content_type: &'static str, responses: Vec<String>) -> (String, mpsc::Receiver<(String, Value)>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut request_line = String::new();
-        reader.read_line(&mut request_line).unwrap();
-        let mut length = 0;
-        loop {
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            if line.trim().is_empty() {
-                break;
+        for response in responses {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).unwrap();
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+                if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
             }
-            if let Some(value) = line.to_lowercase().strip_prefix("content-length:") {
-                length = value.trim().parse().unwrap();
-            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let path = request_line.split_whitespace().nth(1).unwrap().to_string();
+            let _ = tx.send((path, serde_json::from_slice(&body).unwrap()));
+            let mut stream = stream;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
+                response.len()
+            )
+            .unwrap();
         }
-        let mut body = vec![0; length];
-        reader.read_exact(&mut body).unwrap();
-        let path = request_line.split_whitespace().nth(1).unwrap().to_string();
-        tx.send((path, serde_json::from_slice(&body).unwrap())).unwrap();
-        let mut stream = stream;
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",
-            response.len()
-        )
-        .unwrap();
     });
     (url, rx)
 }
@@ -96,6 +103,21 @@ fn errors_inside_the_stream_are_reported() {
     let llm = OpenAiCompatibleLlm::new(&url, "key", None).unwrap();
     let error = llm.chat_tools(&[Msg::user("Salut")], "m", &[], true, &mut |_| {}).unwrap_err();
     assert!(error.to_string().contains("exceeded token rate limit"), "{error}");
+}
+
+#[test]
+fn rate_limit_in_stream_is_retried_before_any_text() {
+    let limited = format!(
+        "data: {}\n\n",
+        json!({"error": {"message": "exceeded token rate limit. Please retry after 1 second.", "code": "429"}})
+    );
+    let ok = format!("data: {}\n\ndata: [DONE]\n\n", json!({"choices": [{"index": 0, "delta": {"content": "Bonjour"}}]}));
+    let (url, rx) = serve("text/event-stream", vec![limited, ok]);
+    let llm = OpenAiCompatibleLlm::new(&url, "key", None).unwrap();
+    let mut text = String::new();
+    let turn = llm.chat_tools(&[Msg::user("Salut")], "m", &[], true, &mut |t| text.push_str(t)).unwrap();
+    assert_eq!((text.as_str(), turn.text.as_str()), ("Bonjour", "Bonjour"));
+    assert_eq!(rx.iter().take(2).count(), 2);
 }
 
 #[test]
