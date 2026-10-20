@@ -122,19 +122,27 @@ accepté et s'affiche « sans note ».
 
 ### Backlog et board hebdomadaire
 
-Inspiré d'Azure DevOps : le **backlog** regroupe les tâches par projet (le projet tient lieu
-de feature) et le **board** montre les tâches d'une itération d'une semaine (`2026-S43`,
-semaine ISO du lundi au dimanche, même libellé que les imputations).
+Inspiré d'Azure DevOps : le **backlog** liste toutes les tâches dans un seul ordre (le projet
+tient lieu de feature et s'affiche en colonne) et le **board** montre les tâches d'une
+itération d'une semaine (`2026-S43`, semaine ISO du lundi au dimanche, même libellé que les
+imputations), chaque colonne de statut dans ce même ordre.
 
-- `rank` (entier, croissant) ordonne le backlog ; une tâche sans rang vient après les autres,
-  par identifiant. `POST /api/tasks/{id}/move` (`{project, before}`) place la tâche avant
-  `before` (à la fin sans) dans le projet `project` (`null` : sans projet) : rang médian
-  entre les voisins, ou renumérotation du projet par pas de 1000 quand il n'y a plus de place.
-  Un changement de projet est tracé dans l'historique.
-- Les features s'ordonnent de la même façon : `rank` dans la note du projet (`projets/*.md`),
-  `POST /api/projects/{id}/move` (`{before}`) renvoie les projets dans l'ordre du backlog.
-  `GET /api/projects` reste trié par titre (listes déroulantes) et expose `rank`. Les projets
-  cités sans note et « Sans projet » restent en fin de backlog.
+- `rank` (entier, croissant) ordonne toutes les tâches entre elles, quel que soit leur projet ;
+  une tâche sans rang vient après les autres, par identifiant. Le backlog et le board trient
+  par ce seul rang : réordonner dans l'un réordonne l'autre. `POST /api/tasks/{id}/move`
+  (`{before}` ou `{after}`) place la tâche avant `before`, sinon après `after`, sinon en fin
+  de backlog : rang médian entre les voisins, ou renumérotation du backlog par pas de 1000
+  quand il n'y a plus de place. Le déplacement ne change ni le projet ni le statut et n'est
+  pas tracé dans l'historique ; le board enchaîne `PATCH` (statut) et `move` (`before` la
+  carte visée, ou `after` la dernière carte de la colonne).
+- Filtres et recherche du backlog : côté interface, sur la liste déjà chargée ; un glisser
+  avec filtres actifs place la tâche par rapport aux tâches affichées, dans l'ordre global.
+  Le filtre projet est porté par l'adresse (`#/taches?projet=…`, `-` pour « sans projet »)
+  et partagé avec le board.
+- Les features gardent leur propre ordre (`rank` dans la note du projet, `projets/*.md`,
+  `POST /api/projects/{id}/move` avec `{before}`), utilisé par le chat (`list_projects`) ;
+  le backlog ne regroupe plus par feature. `GET /api/projects` reste trié par titre (listes
+  déroulantes) et expose `rank`.
 - `iterations` liste les semaines où la tâche a été planifiée ; la dernière est la semaine
   courante de planification (`iteration` dans l'API). `PATCH /api/tasks/{id}` avec
   `changes.iteration` (semaine ou `null`) remplace les semaines courantes ou futures et garde
@@ -332,5 +340,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
 - [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
 - [x] Tâches en backlog (ordre par glisser-déposer, projets comme features) et board par itération hebdomadaire avec report automatique
+- [x] Backlog à plat : ordre unique de toutes les tâches partagé avec le board (réordonnable
+  des deux côtés), feature en colonne, filtres par colonne et recherche
 - [x] Chat dans un panneau latéral droit accessible depuis tous les espaces (réductible, redimensionnable, Alt+C)
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

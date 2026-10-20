@@ -197,9 +197,9 @@ export const api = {
     request<Task>("PATCH", `/api/tasks/${encodeURIComponent(id)}`, { changes, note }),
   backlog: () => request<Backlog>("GET", "/api/tasks/backlog"),
   board: (week: string | null) => request<Board>("GET", "/api/tasks/board" + q({ week: week ?? "" })),
-  /** place la tâche dans le projet (null : sans projet), avant la tâche before (null : à la fin) */
-  moveTask: (id: string, project: string | null, before: string | null) =>
-    request<Task[]>("POST", `/api/tasks/${encodeURIComponent(id)}/move`, { project, before }),
+  /** place la tâche dans l'ordre global (backlog et board) : avant before, sinon après after, sinon à la fin */
+  moveTask: (id: string, where: { before?: string | null; after?: string | null }) =>
+    request<Task[]>("POST", `/api/tasks/${encodeURIComponent(id)}/move`, where),
   inbox: () => request<InboxItem[]>("GET", "/api/inbox"),
   inboxAdd: (text: string) => request<{ paths: string[] }>("POST", "/api/inbox", { text }),
   inboxAnalyze: (path: string) => request<Proposal>("POST", "/api/inbox/analyze" + q({ path })),
@@ -307,7 +307,7 @@ export type ChatProposal =
   | { kind: "link"; path: string; title: string; link: string; target_path: string; field: string | null;
       section: string | null }
   | { kind: "unlink"; path: string; title: string; link: string; target_path: string }
-  | { kind: "move_task"; task_id: string; title: string; project: string | null; before: string | null }
+  | { kind: "move_task"; task_id: string; title: string; before: string | null }
   | { kind: "create_project"; title: string }
   | { kind: "move_project"; project_id: string; title: string; before: string | null }
   | { kind: "set_project_account"; project_id: string; title: string; compte: string | null }

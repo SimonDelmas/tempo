@@ -104,11 +104,18 @@ http://localhost:5173.
   liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
   (ou de la note entière) ; le résultat est relu avant d'être inséré.
 - **Tâches** : deux onglets inspirés d'Azure DevOps.
-  - **Backlog** : les tâches regroupées par projet (les projets tiennent lieu de features),
-    ordonnées par glisser-déposer ; déposer une tâche sous un autre projet la rattache à ce
-    projet. Les features elles-mêmes s'ordonnent en glissant leur ligne d'en-tête. La colonne Itération planifie une tâche sur une semaine (courante ou suivantes).
-  - **Board** : kanban par statut d'une semaine (glisser une carte dans une autre colonne
-    change son statut), la semaine courante par défaut ; flèches et liste pour afficher les autres semaines. Une tâche créée depuis le board
+  - **Backlog** : toutes les tâches dans un seul tableau, ordonnées entre elles par
+    glisser-déposer. La colonne Feature montre le projet de la tâche (les projets tiennent
+    lieu de features) et permet d'en changer ; la colonne Itération planifie une tâche sur une
+    semaine (courante ou suivantes). Une ligne de filtres sous les en-têtes filtre chaque
+    colonne (feature, statut, priorité, itération, échéance) et recherche dans les
+    identifiants, titres, features et itérations ; « Effacer les filtres » les retire. Le
+    filtre Feature est le même que celui de l'en-tête de l'espace (option « Sans projet »).
+  - **Board** : kanban par statut d'une semaine, la semaine courante par défaut ; flèches et
+    liste pour afficher les autres semaines. Les cartes suivent l'ordre du backlog : glisser
+    une carte devant une autre (ou en bas d'une colonne) la replace dans cet ordre, et la
+    déposer dans une autre colonne change aussi son statut. Réordonner dans le backlog
+    réordonne le board, et inversement. Une tâche créée depuis le board
     est planifiée sur la semaine affichée. Au changement de semaine, les tâches non terminées
     basculent dans la semaine courante (« reportée ») et restent visibles sur le board de la
     semaine quittée.

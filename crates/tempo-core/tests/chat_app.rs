@@ -78,24 +78,24 @@ fn backlog_and_projects() {
     let c = common::ctx();
     let result = propose(&c, vec![
         tool("propose_project_create", json!({"title": "CRM"})),
-        tool("propose_task_move", json!({"task_id": "T-004", "project": "sap", "before": "T-001"})),
+        tool("propose_task_move", json!({"task_id": "T-004", "before": "T-001"})),
         tool("propose_project_account", json!({"project_id": "sap", "compte": "transverse"})),
         tool("propose_project_move", json!({"project_id": "sap"})),
         // erreurs renvoyées au modèle
         tool("propose_project_create", json!({"title": "migration sap"})),
-        tool("propose_task_move", json!({"task_id": "T-004", "project": "inconnu"})),
-        tool("propose_task_move", json!({"task_id": "T-004", "project": "", "before": "T-001"})),
+        tool("propose_task_move", json!({"task_id": "T-004", "project": "sap"})),
+        tool("propose_task_move", json!({"task_id": "T-004", "before": "T-004"})),
         tool("propose_project_account", json!({"project_id": "sap", "compte": "SAP-MIG"})),
     ]);
     let summaries = summaries(&result);
     assert!(summaries[..4].iter().all(Option::is_none), "{summaries:?}");
     assert!(summaries[4].unwrap().contains("existe déjà"));
-    assert!(summaries[5].unwrap().contains("Projet introuvable"));
-    assert!(summaries[6].unwrap().contains("n'est pas dans le projet"));
+    assert!(summaries[5].unwrap().contains("arguments invalides"), "le projet se change par propose_task_update");
+    assert!(summaries[6].unwrap().contains("devant elle-même"));
     assert!(summaries[7].unwrap().contains("déjà dans cet état"));
     let proposals = &result["proposals"];
     assert_eq!(proposals[1], json!({"kind": "move_task", "task_id": "T-004", "title": "Rédiger la procédure de recette",
-                                    "project": "sap", "before": "T-001"}));
+                                    "before": "T-001"}));
     assert_eq!(proposals[2]["compte"], "TRANSVERSE");
 
     apply_all(&c, &result, FakeLlm::new(Vec::<String>::new()));

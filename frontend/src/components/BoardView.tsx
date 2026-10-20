@@ -17,19 +17,21 @@ type Props = {
 
 const shortDate = (iso: string) => iso.slice(8, 10) + "/" + iso.slice(5, 7);
 
-/** Board d'une semaine : colonnes par statut, déplacement des cartes par glisser-déposer. */
+/** Board d'une semaine : colonnes par statut dans l'ordre du backlog ; glisser une carte la
+ *  place dans une colonne (statut) et dans l'ordre, repris par le backlog. */
 export default function BoardView({ config, revision, week, project, projects, addProject, onWeek, onOpen, notify }: Props) {
   const [board, setBoard] = useState<Board | null>(null);
   const [showDone, setShowDone] = useState(true);
   const [draft, setDraft] = useState({ title: "", project: "", priority: "normale", due: "" });
   const [dragged, setDragged] = useState<string | null>(null);
-  const [over, setOver] = useState<string | null>(null);
+  /** colonne survolée et carte devant laquelle déposer (null : fin de colonne) */
+  const [over, setOver] = useState<{ status: string; before: string | null } | null>(null);
 
   const reload = () => api.board(week || null).then(setBoard).catch((e) => notify(e.message, true));
   useEffect(() => { reload(); }, [revision, week]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!board) return <div className="loading">Chargement…</div>;
-  const visible = board.tasks.filter((t) => !project || t.project === project);
+  const visible = board.tasks.filter((t) => !project || (project === "-" ? !t.project : t.project === project));
   const columns = config.statuses.filter((s) => showDone || s !== "terminee");
   const past = board.week < board.current;
   const select = (w: string) => onWeek(w === board.current ? null : w);
@@ -38,7 +40,7 @@ export default function BoardView({ config, revision, week, project, projects, a
     if (!draft.title.trim()) return;
     try {
       const task = await api.createTask({
-        title: draft.title, project: draft.project || project || null,
+        title: draft.title, project: draft.project || (project !== "-" && project) || null,
         priority: draft.priority, due: draft.due || null, iteration: board.week,
       });
       notify(`Tâche ${task.id} créée en ${board.week}`);
@@ -49,16 +51,29 @@ export default function BoardView({ config, revision, week, project, projects, a
     }
   };
 
-  const move = async (id: string, status: string) => {
+  /** dépose la carte dans la colonne `status`, avant la carte `before` (fin de colonne sans) */
+  const move = async (id: string, status: string, before: string | null) => {
     const task = board.tasks.find((t) => t.id === id);
-    if (!task || task.status === status) return;
-    setBoard({ ...board, tasks: board.tasks.map((t) => (t.id === id ? { ...t, status } : t)) });
+    if (!task || before === id) return;
+    const column = visible.filter((t) => t.status === status && t.id !== id);
+    const where = before ? { before } : column.length ? { after: column[column.length - 1].id } : null;
+    // affichage immédiat : la carte change de colonne et prend sa place
+    const others = board.tasks.filter((t) => t.id !== id);
+    const anchor = where && ("before" in where ? where.before : where.after);
+    const at = anchor ? others.findIndex((t) => t.id === anchor) + (where && "after" in where ? 1 : 0) : others.length;
+    setBoard({ ...board, tasks: [...others.slice(0, at), { ...task, status }, ...others.slice(at)] });
     try {
-      await api.updateTask(id, { status });
+      if (task.status !== status) await api.updateTask(id, { status });
+      if (where) await api.moveTask(id, where);
     } catch (e) {
       notify((e as Error).message, true);
     }
     reload();
+  };
+
+  const endDrag = () => {
+    setDragged(null);
+    setOver(null);
   };
 
   return (
@@ -98,40 +113,49 @@ export default function BoardView({ config, revision, week, project, projects, a
         <p className="muted">Aucune tâche planifiée en {board.week} : planifiez-en depuis le backlog.</p>
       )}
 
-      <div className="kanban">
+      <div className="kanban" onDragEnd={endDrag}>
         {columns.map((status) => {
           const items = visible.filter((t) => t.status === status);
+          const target = over?.status === status ? over : null;
+          const drop = (e: React.DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = dragged || e.dataTransfer.getData("text/plain");
+            const before = target?.before ?? null;
+            endDrag();
+            if (id) move(id, status, before);
+          };
+          /** survol : avant la carte `before`, ou en fin de colonne (null) */
+          const hover = (before: string | null) => (e: React.DragEvent) => {
+            if (!dragged) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            if (target?.before !== before || !target) setOver({ status, before });
+          };
           return (
-            <section key={status} className={`column status-${status}${over === status ? " drop-target" : ""}`}
-              onDragOver={(e) => {
-                if (!dragged) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                if (over !== status) setOver(status);
-              }}
+            <section key={status} className={`column status-${status}${target ? " drop-target" : ""}`}
+              onDragOver={hover(null)}
               onDragLeave={(e) => {
                 // ignore les passages d'un enfant à l'autre de la colonne
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null);
               }}
-              onDrop={(e) => {
-                e.preventDefault();
-                const id = dragged || e.dataTransfer.getData("text/plain");
-                if (id) move(id, status);
-                setDragged(null);
-                setOver(null);
-              }}>
+              onDrop={drop}>
               <h3>{STATUS_LABELS[status]} <span className="count">{items.length}</span></h3>
               {items.map((t) => {
                 const overdue = t.due && t.due < today() && t.status !== "terminee";
                 const carried = t.iterations.indexOf(board.week) > 0;
+                const before = target?.before === t.id && dragged !== t.id;
                 return (
-                  <article key={t.id} className={`card priority-${t.priority}${dragged === t.id ? " dragging" : ""}`} draggable
+                  <article key={t.id} draggable
+                    className={`card priority-${t.priority}${dragged === t.id ? " dragging" : ""}${before ? " drop-before" : ""}`}
                     onDragStart={(e) => {
                       e.dataTransfer.effectAllowed = "move";
                       e.dataTransfer.setData("text/plain", t.id);
                       setDragged(t.id);
                     }}
-                    onDragEnd={() => { setDragged(null); setOver(null); }}
+                    onDragOver={hover(t.id)}
+                    onDrop={drop}
                     onClick={() => onOpen(t.path)}>
                     <div className="card-top">
                       <span className="muted small">{t.id}</span>
@@ -147,6 +171,7 @@ export default function BoardView({ config, revision, week, project, projects, a
                   </article>
                 );
               })}
+              {target && target.before === null && dragged && <div className="card-slot" />}
             </section>
           );
         })}

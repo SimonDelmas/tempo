@@ -198,6 +198,8 @@ main { flex: 1; overflow: auto; min-width: 0; }
 .column h3 { font-size: 13px; }
 .column.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .card.dragging { opacity: .4; }
+.card.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.card-slot { height: 28px; border: 2px dashed var(--accent); border-radius: 6px; opacity: .6; }
 .status-bloquee h3 { color: var(--danger); }
 .card {
   background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--border);
@@ -218,22 +220,23 @@ main { flex: 1; overflow: auto; min-width: 0; }
 .view-tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); position: relative; }
 .week-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 
-/* backlog : tâches groupées par projet (feature), ordonnées par glisser-déposer */
+/* backlog : toutes les tâches dans un seul ordre (repris par le board), filtres par colonne */
 .backlog { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 .backlog th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.backlog tr.filters th { padding: 4px 8px; font-weight: 400; background: var(--sidebar); }
+.backlog tr.filters input, .backlog tr.filters select { width: 100%; padding: 2px 6px; font-size: 13px; }
 .backlog td { padding: 4px 8px; border-top: 1px solid var(--border); vertical-align: middle; }
 .backlog .grip { width: 18px; color: var(--muted); cursor: grab; text-align: center; user-select: none; }
-.backlog tr.feature td { background: var(--sidebar); font-weight: 600; padding: 6px 8px; }
-.backlog .feature-grip { color: var(--muted); cursor: grab; margin-right: 6px; user-select: none; font-weight: 400; }
-.backlog tr.feature.dragging { opacity: .4; }
-.backlog .feature-toggle { border: none; padding: 0 6px 0 0; }
-.backlog .feature .count { margin-left: 8px; }
+.backlog td.feature select { padding: 1px 4px; font-size: 13px; max-width: 180px; }
+.backlog td.id { white-space: nowrap; }
+.backlog td.title { min-width: 240px; }
 .backlog tr.task-row:hover td { background: var(--accent-soft); }
 .backlog tr.dragging { opacity: .4; }
 .backlog tr.done .link { color: var(--muted); text-decoration: line-through; }
 .backlog tr.drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
-.backlog tr.feature-end td { border-top: none; padding: 0 8px; height: 6px; }
-.backlog tr.feature-end.visible td { height: 22px; }
+.backlog tr.backlog-end td { padding: 0 8px; height: 6px; }
+.backlog tr.backlog-end.visible td { height: 22px; }
+.backlog-footer { display: flex; gap: 12px; align-items: center; margin-top: 6px; }
 .backlog td.iteration { white-space: nowrap; }
 .backlog td.iteration select { padding: 1px 4px; font-size: 13px; }
 .backlog td.iteration button { padding: 0 4px; border: none; }

@@ -155,10 +155,10 @@ struct ProjectMove {
 
 #[derive(Deserialize)]
 struct TaskMove {
-    /// projet (feature) de destination, vide ou absent pour « sans projet »
-    project: Option<String>,
-    /// tâche devant laquelle se placer, absente pour la fin du projet
+    /// tâche devant laquelle se placer
     before: Option<String>,
+    /// à défaut de `before`, tâche après laquelle se placer (fin du backlog sans les deux)
+    after: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -508,7 +508,7 @@ async fn task_board(State(s): State<AppState>, Query(q): Query<WeekParam>) -> Ap
 }
 
 async fn move_task(State(s): State<AppState>, Path(task_id): Path<String>, JsonBody(body): JsonBody<TaskMove>) -> ApiResult {
-    blocking(move || s.tasks.move_task(&task_id, body.project.as_deref(), body.before.as_deref())).await
+    blocking(move || s.tasks.move_task(&task_id, body.before.as_deref(), body.after.as_deref())).await
 }
 
 // --- inbox ---------------------------------------------------------------------

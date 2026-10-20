@@ -1,7 +1,7 @@
 //! Tâches : un fichier par tâche dans taches/, avec une section Historique datée.
 //!
-//! Organisation façon backlog : `rank` ordonne les tâches dans le backlog (regroupées par
-//! projet, qui tient lieu de feature) et `iterations` liste les semaines (`2026-S43`) où la
+//! Organisation façon backlog : `rank` ordonne toutes les tâches entre elles (le même ordre
+//! sert au backlog et aux colonnes du board ; le projet tient lieu de feature) et `iterations` liste les semaines (`2026-S43`) où la
 //! tâche a été planifiée — la dernière est la semaine en cours de planification, les
 //! précédentes gardent l'historique des boards.
 
@@ -476,33 +476,27 @@ impl TaskService {
         Ok(moved)
     }
 
-    /// Déplace une tâche dans le backlog : elle rejoint le projet `project` (`None` : sans
-    /// projet) et se place avant la tâche `before` (à la fin du projet sans `before`). Les rangs
-    /// du projet sont renumérotés quand il n'y a plus de place entre les voisins.
-    pub fn move_task(&self, task_id: &str, project: Option<&str>, before: Option<&str>) -> Result<Vec<Task>> {
-        let project = project.filter(|p| !p.is_empty());
+    /// Déplace une tâche dans l'ordre global du backlog, partagé par le board : avant la tâche
+    /// `before`, sinon après la tâche `after`, sinon à la fin. Le projet et le statut ne changent
+    /// pas. Les rangs sont renumérotés quand il n'y a plus de place entre les voisins.
+    pub fn move_task(&self, task_id: &str, before: Option<&str>, after: Option<&str>) -> Result<Vec<Task>> {
         let task = self.get(task_id)?.task;
-        let mut group: Vec<Task> =
-            self.all()?.into_iter().filter(|t| t.id != task.id && t.project.as_deref() == project).collect();        group.sort_by(backlog_order);
-        let at = match before.filter(|b| !b.is_empty()) {
-            Some(b) => group.iter().position(|t| t.id == b).ok_or_else(|| not_found(format!("Tâche introuvable : {b}")))?,
-            None => group.len(),
+        let mut others: Vec<Task> = self.all()?.into_iter().filter(|t| t.id != task.id).collect();
+        others.sort_by(backlog_order);
+        let position = |id: &str| {
+            others.iter().position(|t| t.id == id).ok_or_else(|| not_found(format!("Tâche introuvable : {id}")))
         };
-        let ranks: Vec<(String, Option<i64>)> = group.into_iter().map(|t| (t.id, t.rank)).collect();
+        let at = match (before.filter(|b| !b.is_empty()), after.filter(|a| !a.is_empty())) {
+            (Some(b), _) => position(b)?,
+            (None, Some(a)) => position(a)? + 1,
+            (None, None) => others.len(),
+        };
+        let ranks: Vec<(String, Option<i64>)> = others.into_iter().map(|t| (t.id, t.rank)).collect();
         let today_str = today().to_string();
         for (id, rank) in rank_changes(&ranks, &task.id, at) {
-            let moved = id == task.id;
             self.edit(&id, &today_str, |meta| {
                 meta.insert("rank".into(), Value::from(rank));
-                let old = meta_str(meta, "project");
-                if !moved || old.as_deref() == project {
-                    return Ok(Vec::new());
-                }
-                match project {
-                    Some(p) => meta.insert("project".into(), p.into()),
-                    None => meta.shift_remove("project"),
-                };
-                Ok(vec![format!("projet {} → {}", old.as_deref().unwrap_or("aucun"), project.unwrap_or("aucun"))])
+                Ok(Vec::new())
             })?;
         }
         Ok(self.backlog(None)?.tasks)

@@ -129,7 +129,7 @@ function describe(p: ChatProposal): { title: string; detail?: string; diff?: Dif
       return { title: `Retirer de « ${p.title} » les liens vers ${p.link}` };
     case "move_task":
       return { title: `Déplacer ${p.task_id} · ${p.title}`,
-        detail: [`projet ${p.project ?? "aucun"}`, p.before ? `avant ${p.before}` : "en fin de projet"].join(" · ") };
+        detail: p.before ? `avant ${p.before}` : "en fin de backlog" };
     case "create_project":
       return { title: `Créer le projet « ${p.title} »` };
     case "move_project":

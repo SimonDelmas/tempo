@@ -157,13 +157,12 @@ pub enum ChatProposal {
         link: String,
         target_path: String,
     },
-    /// place la tâche dans un projet du backlog (`None` : sans projet), avant la tâche `before`
-    /// (à la fin du projet sans `before`)
+    /// place la tâche dans l'ordre global du backlog (partagé par le board), avant la tâche
+    /// `before` (à la fin sans `before`)
     MoveTask {
         task_id: String,
         #[serde(default)]
         title: String,
-        project: Option<String>,
         before: Option<String>,
     },
     CreateProject { title: String },
@@ -485,8 +484,6 @@ struct NoArgs {}
 struct TaskMoveArgs {
     task_id: String,
     #[serde(default)]
-    project: Option<String>,
-    #[serde(default)]
     before: Option<String>,
 }
 
@@ -664,7 +661,7 @@ fn read_tools() -> Vec<ToolDef> {
              object(&["start", "end"], json!({"start": date("début"), "end": date("fin")}))),
         tool("task_board", "Board d'une semaine : tâches planifiées cette semaine-là, avec leur statut.",
              object(&[], json!({"week": text("semaine AAAA-Snn, la semaine courante par défaut")}))),
-        tool("task_backlog", "Backlog : toutes les tâches dans l'ordre du backlog (rang au sein de leur projet).",
+        tool("task_backlog", "Backlog : toutes les tâches dans l'ordre du backlog (un seul ordre, repris par le board).",
              object(&[], json!({}))),
         tool("list_projects", "Projets (features du backlog), dans l'ordre du backlog, avec leur compte d'imputation.",
              object(&[], json!({}))),
@@ -753,11 +750,11 @@ fn proposal_tools() -> Vec<ToolDef> {
                  "name": text("note à modifier (lien, nom ou chemin)"), "target": text("note dont retirer les liens"),
              }))),
         tool("propose_task_move",
-             &format!("{PROPOSAL}place une tâche dans le backlog : dans un projet (chaîne vide : sans projet), \
-                       avant une autre tâche de ce projet (à la fin sans before)."),
+             &format!("{PROPOSAL}place une tâche dans l'ordre du backlog (un seul ordre pour toutes les \
+                       tâches, repris par le board), avant une autre tâche (à la fin sans before). Pour \
+                       changer son projet, utilise propose_task_update."),
              object(&["task_id"], json!({
-                 "task_id": text("tâche à déplacer"), "project": text("identifiant du projet de destination"),
-                 "before": text("tâche devant laquelle se placer"),
+                 "task_id": text("tâche à déplacer"), "before": text("tâche devant laquelle se placer"),
              }))),
         tool("propose_project_create", &format!("{PROPOSAL}nouveau projet (feature du backlog)."),
              object(&["title"], json!({"title": text("nom du projet")}))),
@@ -1216,21 +1213,13 @@ impl ChatService {
 
     fn propose_task_move(&self, args: TaskMoveArgs) -> Result<ChatProposal> {
         let task = self.tasks.get(&args.task_id)?.task;
-        let project = args.project.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
-        if let Some(project) = &project {
-            self.project_title(project)?;
-        }
         let before = args.before.map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
         if let Some(before) = &before {
-            let other = self.tasks.get(before)?.task;
-            if other.id == task.id {
+            if self.tasks.get(before)?.task.id == task.id {
                 return Err(vault_err("Une tâche ne peut pas se placer devant elle-même"));
             }
-            if other.project != project {
-                return Err(vault_err(format!("La tâche {} n'est pas dans le projet de destination", other.id)));
-            }
         }
-        Ok(ChatProposal::MoveTask { task_id: task.id, title: task.title, project, before })
+        Ok(ChatProposal::MoveTask { task_id: task.id, title: task.title, before })
     }
 
     fn propose_project_create(&self, title: &str) -> Result<ChatProposal> {
@@ -1456,8 +1445,8 @@ impl ChatService {
                 self.index.remove(path)?;
                 Ok(json!({"path": Value::Null, "message": "Note supprimée (récupérable dans .trash)"}))
             }
-            ChatProposal::MoveTask { task_id, project, before, .. } => {
-                self.tasks.move_task(task_id, project.as_deref(), before.as_deref())?;
+            ChatProposal::MoveTask { task_id, before, .. } => {
+                self.tasks.move_task(task_id, before.as_deref(), None)?;
                 Ok(json!({"path": self.tasks.path_of(task_id)?, "message": format!("Tâche {task_id} déplacée dans le backlog")}))
             }
             ChatProposal::CreateProject { title } => {

@@ -56,38 +56,35 @@ fn roll_over_moves_open_tasks_and_keeps_history() {
 }
 
 #[test]
-fn move_orders_backlog_and_changes_project() {
+fn move_orders_all_tasks_shared_with_board() {
     let c = common::ctx();
     // sans rang : ordre des identifiants
     assert_eq!(ids(&c.tasks.backlog(Some("2026-10-19")).unwrap().tasks), ["T-001", "T-002", "T-003", "T-004"]);
-    let sap: Vec<String> =
-        c.tasks.all().unwrap().into_iter().filter(|t| t.project.as_deref() == Some("sap")).map(|t| t.id).collect();
-    assert!(sap.len() >= 2, "le vault d'exemple a plusieurs tâches sap : {sap:?}");
 
-    // la dernière tâche sap passe en tête : le projet est renuméroté
-    let last = sap.last().unwrap().clone();
-    let backlog = c.tasks.move_task(&last, Some("sap"), Some(&sap[0])).unwrap();
-    let order: Vec<&str> = backlog.iter().filter(|t| t.project.as_deref() == Some("sap")).map(|t| t.id.as_str()).collect();
-    assert_eq!(order[0], last);
-    assert!(backlog.iter().filter(|t| t.project.as_deref() == Some("sap")).all(|t| t.rank.is_some()));
+    // la dernière tâche passe en tête : tout le backlog est renuméroté
+    let backlog = c.tasks.move_task("T-004", Some("T-001"), None).unwrap();
+    assert_eq!(ids(&backlog), ["T-004", "T-001", "T-002", "T-003"]);
+    assert!(backlog.iter().all(|t| t.rank.is_some()));
+    let text = c.vault.read_text(&c.tasks.path_of("T-004").unwrap()).unwrap();
+    let (meta, _) = split_frontmatter(&text);
+    assert_eq!(meta["project"], "sap", "le projet ne change pas");
+    assert!(!text.contains("projet sap"), "pas d'historique pour un simple déplacement");
 
     // une place libre entre deux rangs : seul le fichier déplacé change
-    let second = order[1].to_string();
-    let third = order.get(2).map(|s| s.to_string());
-    let before_text = c.vault.read_text(&c.tasks.path_of(&second).unwrap()).unwrap();
-    c.tasks.move_task(&last, Some("sap"), third.as_deref()).unwrap();
-    assert_eq!(c.vault.read_text(&c.tasks.path_of(&second).unwrap()).unwrap(), before_text);
-    let order: Vec<String> = c.tasks.backlog(None).unwrap().tasks.into_iter()
-        .filter(|t| t.project.as_deref() == Some("sap")).map(|t| t.id).collect();
-    assert_eq!(order[1], last);
+    let before_text = c.vault.read_text(&c.tasks.path_of("T-002").unwrap()).unwrap();
+    assert_eq!(ids(&c.tasks.move_task("T-003", None, Some("T-001")).unwrap()), ["T-004", "T-001", "T-003", "T-002"]);
+    assert_eq!(c.vault.read_text(&c.tasks.path_of("T-002").unwrap()).unwrap(), before_text);
 
-    // déposer sous « sans projet » retire le projet
-    c.tasks.move_task(&last, None, None).unwrap();
-    let text = c.vault.read_text(&c.tasks.path_of(&last).unwrap()).unwrap();
-    let (meta, _) = split_frontmatter(&text);
-    assert!(!meta.contains_key("project"));
-    assert!(meta["rank"].is_i64());
-    assert!(text.trim_end().ends_with(" : projet sap → aucun"), "{text}");
+    // sans repère : fin du backlog ; repère inconnu : 404
+    assert_eq!(ids(&c.tasks.move_task("T-004", None, None).unwrap()), ["T-001", "T-003", "T-002", "T-004"]);
+    assert!(c.tasks.move_task("T-004", Some("T-999"), None).is_err());
+
+    // le board d'une semaine reprend le même ordre
+    for id in ["T-001", "T-003", "T-004"] {
+        plan(&c, id, Some("2026-S43"), "2026-10-19");
+    }
+    c.tasks.move_task("T-004", Some("T-001"), None).unwrap();
+    assert_eq!(ids(&c.tasks.board(None, Some("2026-10-21")).unwrap().tasks), ["T-004", "T-001", "T-003"]);
 }
 
 #[tokio::test]
@@ -130,11 +127,16 @@ async fn backlog_routes() {
     assert_eq!(backlog["weeks"].as_array().unwrap().len(), 8);
     assert_eq!(backlog["weeks"][0]["label"], backlog["current"]);
 
-    let moved = app.post(&format!("/api/tasks/{id}/move"), Some(json!({"project": "sap", "before": "T-001"}))).await;
+    let order = |v: serde_json::Value| -> Vec<String> {
+        v.as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap().to_string()).collect()
+    };
+    let moved = app.post(&format!("/api/tasks/{id}/move"), Some(json!({"before": "T-001"}))).await;
     assert_eq!(moved.status, StatusCode::OK, "{}", moved.text);
-    let tasks = moved.json();
-    let first = tasks.as_array().unwrap().iter().find(|t| t["project"] == "sap").unwrap();
-    assert_eq!(first["id"], id.as_str());
+    assert_eq!(order(moved.json())[0], id);
+    let moved = app.post(&format!("/api/tasks/{id}/move"), Some(json!({"after": "T-002"}))).await.json();
+    assert_eq!(order(moved)[..3], ["T-001", "T-002", id.as_str()]);
+    let missing = app.post(&format!("/api/tasks/{id}/move"), Some(json!({"after": "T-999"}))).await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
 
     let unplanned = app.call(Method::PATCH, &format!("/api/tasks/{id}"), Some(json!({"changes": {"iteration": null}}))).await;
     assert!(unplanned.json()["iteration"].is_null());

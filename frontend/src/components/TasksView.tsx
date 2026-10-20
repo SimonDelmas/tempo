@@ -13,14 +13,14 @@ type Props = {
   tab: TasksTab;
   /** semaine du board (2026-S43), "" pour la semaine courante */
   week: string;
-  /** filtre projet, porté par l'adresse (#/taches?projet=…) */
+  /** filtre projet, porté par l'adresse (#/taches?projet=…), "-" pour les tâches sans projet */
   project: string;
   onNavigate: (params: { vue?: TasksTab; semaine?: string | null; projet?: string | null }) => void;
   onOpen: (path: string) => void;
   notify: (message: string, error?: boolean) => void;
 };
 
-/** Espace Tâches : backlog ordonné par projet (features) et board par semaine. */
+/** Espace Tâches : backlog (un seul ordre pour toutes les tâches) et board par semaine dans le même ordre. */
 export default function TasksView({ config, revision, tab, week, project, onNavigate, onOpen, notify }: Props) {
   const [projects, addProject] = useProjects(revision);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -47,10 +47,11 @@ export default function TasksView({ config, revision, tab, week, project, onNavi
           <option value="">Tous les projets</option>
           {projects.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
           {orphans.map((p) => <option key={p} value={p}>{p} (sans note)</option>)}
+          <option value="-">Sans projet</option>
         </select>
       </header>
       {tab === "backlog"
-        ? <BacklogView {...shared} onPlan={(semaine) => onNavigate({ vue: "board", semaine })} />
+        ? <BacklogView {...shared} onProject={(projet) => onNavigate({ projet: projet || null })} onPlan={(semaine) => onNavigate({ vue: "board", semaine })} />
         : <BoardView {...shared} week={week} onWeek={(semaine) => onNavigate({ semaine })} />}
     </div>
   );
