@@ -116,28 +116,14 @@ fn chat_semantic_tool() {
     add_zeppelin(&c);
     let semantic = make(&c, None, "test");
     semantic.sync();
-    let chat = ChatService::new(
-        c.vault.clone(),
-        c.index.clone(),
-        c.tasks.clone(),
-        c.journal.clone(),
-        FakeLlm::new(Vec::<String>::new()),
-        c.settings.clone(),
-        Some(semantic),
-    );
+    let llm = FakeLlm::new(Vec::<String>::new());
+    let chat = ChatService::new(common::chat_deps(&c, llm.clone()), llm, c.settings.clone(), Some(semantic));
     assert!(chat.tool_names().contains(&"semantic_search"));
     let hits = chat.semantic_search("nacelle de dirigeable").unwrap();
     assert_eq!(hits[0]["lien"], "[[zeppelin]]");
     assert!(hits[0].get("proximite").is_some());
-    let without = ChatService::new(
-        c.vault.clone(),
-        c.index.clone(),
-        c.tasks.clone(),
-        c.journal.clone(),
-        FakeLlm::new(Vec::<String>::new()),
-        c.settings.clone(),
-        None,
-    );
+    let llm = FakeLlm::new(Vec::<String>::new());
+    let without = ChatService::new(common::chat_deps(&c, llm.clone()), llm, c.settings.clone(), None);
     assert!(!without.tool_names().contains(&"semantic_search"));
 }
 

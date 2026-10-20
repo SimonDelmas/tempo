@@ -68,7 +68,12 @@ http://localhost:5173.
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer ou
   mettre à jour une tâche (statut, titre, projet, semaine), d'ajouter une ligne au journal, de
   créer, modifier (passages, ajout dans une section, propriétés du frontmatter) ou supprimer
-  une note, et d'ajouter ou retirer des liens entre notes. Chaque proposition s'affiche avec un
+  une note, et d'ajouter ou retirer des liens entre notes. Il consulte aussi le board, le
+  backlog, les projets, les comptes et les imputations, l'inbox et les brouillons, et peut
+  proposer de réordonner le backlog (tâches et projets), de créer un projet ou un compte, de
+  rattacher un projet à un compte, de saisir les heures d'une semaine (à partir de la
+  répartition suggérée), d'enregistrer une date de saisie, d'ajouter, traiter ou écarter un
+  élément de l'inbox, et de générer un rapport hebdomadaire ou de tâche. Chaque proposition s'affiche avec un
   aperçu avant / après ; rien n'est écrit avant « Appliquer », et une proposition validée
   s'applique au contenu du moment (plusieurs propositions sur la même note se valident l'une
   après l'autre). Les conversations sont conservées dans l'application (stockage local du navigateur intégré).

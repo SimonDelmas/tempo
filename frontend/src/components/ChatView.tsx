@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ChatProposal, ChatStep, Config, STATUS_LABELS, TYPE_LABELS } from "../api";
+import { AccountCategory, api, CATEGORY_LABELS, ChatProposal, ChatStep, Config, Hours, STATUS_LABELS, TYPE_LABELS } from "../api";
 import { ChatEntry, Conversation, LiveReply, ProposalState } from "../chats";
 import Markdown from "./Markdown";
 
@@ -40,6 +40,28 @@ const TOOL_LABELS: Record<string, string> = {
   propose_note_delete: "Proposition de suppression",
   propose_link: "Proposition de lien",
   propose_unlink: "Proposition de retrait de lien",
+  task_board: "Board",
+  task_backlog: "Backlog",
+  list_projects: "Projets",
+  list_accounts: "Comptes",
+  get_imputations: "Imputations",
+  suggest_imputations: "Répartition des imputations",
+  imputation_tracking: "Saisies des imputations",
+  list_inbox: "Inbox",
+  list_drafts: "Brouillons",
+  propose_task_move: "Proposition de déplacement",
+  propose_project_create: "Proposition de projet",
+  propose_project_move: "Proposition d'ordre des projets",
+  propose_project_account: "Proposition de compte du projet",
+  propose_account_create: "Proposition de compte",
+  propose_account_update: "Proposition de modification du compte",
+  propose_imputations: "Proposition d'imputations",
+  propose_saisie: "Proposition de saisie",
+  propose_inbox_add: "Proposition d'ajout à l'inbox",
+  propose_inbox_discard: "Proposition d'écarter",
+  propose_inbox_process: "Analyse de l'inbox",
+  propose_weekly_report: "Proposition de rapport",
+  propose_task_report: "Proposition de rapport de tâche",
 };
 
 const stepLabel = (step: ChatStep) => {
@@ -103,6 +125,60 @@ function describe(p: ChatProposal): { title: string; detail?: string; diff?: Dif
         detail: p.field ? `propriété ${p.field}` : `section ${p.section ?? "## Liens"}` };
     case "unlink":
       return { title: `Retirer de « ${p.title} » les liens vers ${p.link}` };
+    case "move_task":
+      return { title: `Déplacer ${p.task_id} · ${p.title}`,
+        detail: [`projet ${p.project ?? "aucun"}`, p.before ? `avant ${p.before}` : "en fin de projet"].join(" · ") };
+    case "create_project":
+      return { title: `Créer le projet « ${p.title} »` };
+    case "move_project":
+      return { title: `Déplacer le projet « ${p.title} »`, detail: p.before ? `avant ${p.before}` : "en fin de backlog" };
+    case "set_project_account":
+      return { title: p.compte ? `Rattacher le projet « ${p.title} » au compte ${p.compte}`
+        : `Détacher le projet « ${p.title} » de son compte` };
+    case "create_account":
+      return { title: `Créer le compte ${p.alias} · ${p.title}`,
+        detail: [CATEGORY_LABELS[p.categorie as AccountCategory] ?? p.categorie, `${p.days} j`, p.description]
+          .filter(Boolean).join(" · ") };
+    case "update_account": {
+      const after: Record<string, unknown> = { title: p.title, categorie: p.categorie, days: p.days, description: p.description };
+      return { title: `Modifier le compte ${p.alias}`,
+        diff: Object.keys(p.before).flatMap((key) => [
+          { sign: "-" as const, text: `${key}: ${formatValue(p.before[key])}` },
+          { sign: "+" as const, text: `${key}: ${formatValue(after[key])}` }]) };
+    }
+    case "save_imputations": {
+      const day = (hours: Hours, date: string) =>
+        Object.entries(hours[date] ?? {}).map(([alias, h]) => `${alias} ${h} h`).join(", ") || "rien";
+      const dates = [...new Set([...Object.keys(p.before), ...Object.keys(p.hours)])].sort()
+        .filter((date) => day(p.before, date) !== day(p.hours, date));
+      return { title: `Imputations de la semaine ${p.week}`, detail: p.comment || undefined,
+        diff: dates.flatMap((date) => [
+          ...(p.before[date] ? [{ sign: "-" as const, text: `${date} : ${day(p.before, date)}` }] : []),
+          { sign: "+" as const, text: `${date} : ${day(p.hours, date)}` }]) };
+    }
+    case "saisie":
+      return { title: p.done ? `Enregistrer la saisie des imputations du ${p.date}` : `Retirer la saisie du ${p.date}` };
+    case "inbox_add":
+      return { title: "Ajouter à l'inbox", diff: lines("+", p.text) };
+    case "inbox_discard":
+      return { title: "Écarter un élément de l'inbox", detail: p.preview || p.path };
+    case "inbox_apply": {
+      const { echange, new_tasks, task_updates, journal_line, duplicate_of } = p.proposal;
+      return { title: `Traiter l'échange « ${echange.subject} »`,
+        detail: [echange.source, echange.date, duplicate_of && `doublon possible de [[${duplicate_of}]]`].filter(Boolean).join(" · "),
+        diff: [
+          { sign: "+", text: `échange : ${echange.subject}` },
+          ...new_tasks.filter((t) => t.accepted).map((t) => ({ sign: "+" as const, text: `tâche : ${t.title}` })),
+          ...task_updates.filter((u) => u.accepted).map((u) => ({ sign: "+" as const,
+            text: [u.task_id, u.status && `statut → ${STATUS_LABELS[u.status] ?? u.status}`, u.note && `« ${u.note} »`]
+              .filter(Boolean).join(" · ") })),
+          ...(journal_line ? [{ sign: "+" as const, text: `journal : ${journal_line}` }] : []),
+        ] };
+    }
+    case "weekly_report":
+      return { title: `Générer le rapport hebdomadaire ${p.week}`, detail: p.extra ? `à intégrer : ${p.extra}` : undefined };
+    case "task_report":
+      return { title: `Générer le rapport d'avancement ${p.task_id} · ${p.title}` };
   }
 }
 

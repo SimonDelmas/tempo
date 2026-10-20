@@ -306,7 +306,21 @@ export type ChatProposal =
   | { kind: "delete_note"; path: string; title: string; backlinks: string[] }
   | { kind: "link"; path: string; title: string; link: string; target_path: string; field: string | null;
       section: string | null }
-  | { kind: "unlink"; path: string; title: string; link: string; target_path: string };
+  | { kind: "unlink"; path: string; title: string; link: string; target_path: string }
+  | { kind: "move_task"; task_id: string; title: string; project: string | null; before: string | null }
+  | { kind: "create_project"; title: string }
+  | { kind: "move_project"; project_id: string; title: string; before: string | null }
+  | { kind: "set_project_account"; project_id: string; title: string; compte: string | null }
+  | { kind: "create_account"; title: string; alias: string; categorie: string; days: number; description: string }
+  | { kind: "update_account"; alias: string; title: string | null; categorie: string | null; days: number | null;
+      description: string | null; before: Record<string, unknown> }
+  | { kind: "save_imputations"; date: string; week: string; hours: Hours; comment: string; before: Hours }
+  | { kind: "saisie"; date: string; done: boolean }
+  | { kind: "inbox_add"; text: string }
+  | { kind: "inbox_discard"; path: string; preview: string }
+  | { kind: "inbox_apply"; path: string; proposal: Proposal }
+  | { kind: "weekly_report"; date: string | null; week: string; extra: string }
+  | { kind: "task_report"; task_id: string; title: string };
 export type ChatReply = {
   answer: string;
   steps: ChatStep[];

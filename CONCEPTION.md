@@ -262,7 +262,16 @@ projet, semaine), `propose_journal_line`, et pour les notes `propose_note_create
 d'une tâche, qui passent par `propose_task_update` et son historique),
 `propose_note_delete` (corbeille), `propose_link` (liste du frontmatter ou section
 `## Liens`) et `propose_unlink` (entrées du frontmatter retirées, liens du corps remplacés
-par leur texte). Les propositions sont une enum `ChatProposal` (`kind` en JSON, une variante
+par leur texte). Pour le reste de l'application : consultation (`task_board`,
+`task_backlog`, `list_projects`, `list_accounts`, `get_imputations`, `suggest_imputations`
+— répartition proposée, sans écriture —, `imputation_tracking`, `list_inbox`, `list_drafts`)
+et propositions `propose_task_move`, `propose_project_create` / `_move` / `_account`,
+`propose_account_create` / `_update`, `propose_imputations` (toute la semaine remplacée,
+comptes et totaux vérifiés), `propose_saisie`, `propose_inbox_add` / `_discard` /
+`_process` (l'analyse habituelle de l'inbox est faite à la proposition, l'utilisateur
+valide son résultat), `propose_weekly_report` et `propose_task_report` (générés à la
+validation : collecte déterministe, rédaction par le LLM). Le chat reçoit ces services par
+`ChatDeps`. Les brouillons restent en lecture seule pour l'agent. Les propositions sont une enum `ChatProposal` (`kind` en JSON, une variante
 par opération ; l'ancien format à plat des conversations conservées reste lisible). Une
 opération sur une note est vérifiée à la proposition puis rejouée à la validation sur le
 contenu du moment (`notes.rs`), si bien que plusieurs propositions sur la même note se
@@ -301,7 +310,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat : réponses poursuivies en arrière-plan, notification et non-lus à la fin d'une réponse hors de vue
 - [x] Chat : tool calling natif (schémas JSON des outils, appels parallèles) à la place du mode json
 - [x] Chat : propositions typées (une variante par opération), outils de modification des notes et des liens, aperçu avant / après
-- [ ] Chat : outils pour le reste de l'application (inbox, imputations et comptes, rapports, backlog et projets, brouillons)
+- [x] Chat : outils pour le reste de l'application (inbox, imputations et comptes, rapports, backlog et projets ; brouillons en lecture)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)

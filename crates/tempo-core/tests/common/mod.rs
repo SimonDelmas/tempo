@@ -11,7 +11,12 @@ use serde_json::Value;
 use tempfile::TempDir;
 use tower::ServiceExt;
 
+use tempo_core::chat::ChatDeps;
+use tempo_core::drafts::DraftService;
+use tempo_core::imputations::ImputationService;
+use tempo_core::inbox::InboxService;
 use tempo_core::index::Index;
+use tempo_core::reports::ReportService;
 use tempo_core::journal::JournalService;
 use tempo_core::llm::{DisabledLlm, Llm};
 use tempo_core::semantic::Embedder;
@@ -56,6 +61,22 @@ pub fn ctx() -> Ctx {
     let tasks = Arc::new(TaskService::new(vault.clone(), index.clone()));
     let journal = Arc::new(JournalService::new(vault.clone(), index.clone()));
     Ctx { _dir: dir, settings, vault, index, tasks, journal }
+}
+
+/// Services du chat sur le vault de `c`, avec `llm` (rapports, analyse de l'inbox, imputations).
+pub fn chat_deps(c: &Ctx, llm: Arc<dyn Llm>) -> ChatDeps {
+    let (vault, index, tasks, journal, settings) = (&c.vault, &c.index, &c.tasks, &c.journal, &c.settings);
+    let reports = Arc::new(ReportService::new(vault.clone(), index.clone(), tasks.clone(), llm.clone(), settings.clone()));
+    ChatDeps {
+        vault: vault.clone(),
+        index: index.clone(),
+        tasks: tasks.clone(),
+        journal: journal.clone(),
+        inbox: Arc::new(InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone())),
+        imputations: Arc::new(ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm.clone(), settings.clone())),
+        drafts: Arc::new(DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm, settings.clone())),
+        reports,
+    }
 }
 
 /// Application complète (index reconstruit) avec un client HTTP de test.

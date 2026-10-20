@@ -18,7 +18,7 @@ fn answer(text: &str) -> String {
 }
 
 fn make_chat(c: &Ctx, llm: Arc<FakeLlm>) -> ChatService {
-    ChatService::new(c.vault.clone(), c.index.clone(), c.tasks.clone(), c.journal.clone(), llm, c.settings.clone(), None)
+    ChatService::new(common::chat_deps(c, llm.clone()), llm, c.settings.clone(), None)
 }
 
 fn day() -> Option<NaiveDate> {
@@ -334,7 +334,8 @@ fn stream_resets_text_before_tool_calls() {
         }
     }
     let c = common::ctx();
-    let chat = ChatService::new(c.vault.clone(), c.index.clone(), c.tasks.clone(), c.journal.clone(), Arc::new(Preamble), c.settings.clone(), None);
+    let llm: Arc<dyn Llm> = Arc::new(Preamble);
+    let chat = ChatService::new(common::chat_deps(&c, llm.clone()), llm, c.settings.clone(), None);
     let mut events = Vec::new();
     chat.stream(&[ChatMessage::user("?")], None, &mut |e| events.push(e)).unwrap();
     let types: Vec<&str> = events.iter().map(|e| e["type"].as_str().unwrap()).collect();

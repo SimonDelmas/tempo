@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::assist::AssistService;
-use crate::chat::ChatService;
+use crate::chat::{ChatDeps, ChatService};
 use crate::config::Settings;
 use crate::drafts::DraftService;
 use crate::error::Result;
@@ -25,12 +25,12 @@ pub struct Services {
     pub semantic: Arc<SemanticIndex>,
     pub tasks: Arc<TaskService>,
     pub journal: Arc<JournalService>,
-    pub inbox: InboxService,
+    pub inbox: Arc<InboxService>,
     pub reports: Arc<ReportService>,
     pub assist: AssistService,
     pub chat: ChatService,
-    pub imputations: ImputationService,
-    pub drafts: DraftService,
+    pub imputations: Arc<ImputationService>,
+    pub drafts: Arc<DraftService>,
 }
 
 impl Services {
@@ -55,20 +55,25 @@ impl Services {
         let tasks = Arc::new(TaskService::new(vault.clone(), index.clone()));
         let journal = Arc::new(JournalService::new(vault.clone(), index.clone()));
         let reports = Arc::new(ReportService::new(vault.clone(), index.clone(), tasks.clone(), llm.clone(), settings.clone()));
+        let inbox = Arc::new(InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
+        let drafts = Arc::new(DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
+        let imputations = Arc::new(ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm.clone(), settings.clone()));
+        let deps = ChatDeps {
+            vault: vault.clone(),
+            index: index.clone(),
+            tasks: tasks.clone(),
+            journal: journal.clone(),
+            inbox: inbox.clone(),
+            reports: reports.clone(),
+            imputations: imputations.clone(),
+            drafts: drafts.clone(),
+        };
         Ok(Arc::new(Services {
-            inbox: InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()),
             assist: AssistService::new(vault.clone(), index.clone(), tasks.clone(), llm.clone(), settings.clone()),
-            chat: ChatService::new(
-                vault.clone(),
-                index.clone(),
-                tasks.clone(),
-                journal.clone(),
-                llm.clone(),
-                settings.clone(),
-                Some(semantic.clone()),
-            ),
-            drafts: DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()),
-            imputations: ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm, settings.clone()),
+            chat: ChatService::new(deps, llm, settings.clone(), Some(semantic.clone())),
+            inbox,
+            drafts,
+            imputations,
             settings,
             vault,
             index,

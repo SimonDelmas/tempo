@@ -16,15 +16,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::config::Settings;
+use crate::drafts::DraftService;
 use crate::error::{not_found, vault_err, Error, Result};
+use crate::imputations::{Account, Hours, ImputationService, CATEGORIES};
+use crate::inbox::{split_summaries, InboxItem, InboxProposal, InboxService};
 use crate::index::{extract_links, infer_type, Index, NoteRow};
 use crate::journal::{JournalService, NOTE_KINDS};
 use crate::llm::{Llm, Msg, ToolDef};
 use crate::prompts::CHAT_SYSTEM;
+use crate::reports::ReportService;
 use crate::semantic::SemanticIndex;
 use crate::notes::{add_link, append_text, apply_edits, heading, remove_link, split_raw, update_meta, with_meta, TextEdit};
-use crate::tasks::{week_start, NewTask, TaskService, EDITABLE_FIELDS, PRIORITIES, STATUSES};
-use crate::util::{clip, iso_date, today};
+use crate::tasks::{week_start, NewTask, Task, TaskService, EDITABLE_FIELDS, PRIORITIES, STATUSES};
+use crate::util::{clip, date_or_today, iso_date, parse_date, today, week_bounds, week_label};
 use crate::vault::{content_hash, split_frontmatter, Vault};
 
 pub const MAX_STEPS: usize = 8;
@@ -150,6 +154,85 @@ pub enum ChatProposal {
         link: String,
         target_path: String,
     },
+    /// place la tâche dans un projet du backlog (`None` : sans projet), avant la tâche `before`
+    /// (à la fin du projet sans `before`)
+    MoveTask {
+        task_id: String,
+        #[serde(default)]
+        title: String,
+        project: Option<String>,
+        before: Option<String>,
+    },
+    CreateProject { title: String },
+    /// ordre des projets (features) dans le backlog
+    MoveProject {
+        project_id: String,
+        #[serde(default)]
+        title: String,
+        before: Option<String>,
+    },
+    /// compte d'imputation du projet (`None` : détaché)
+    SetProjectAccount {
+        project_id: String,
+        #[serde(default)]
+        title: String,
+        compte: Option<String>,
+    },
+    CreateAccount {
+        title: String,
+        alias: String,
+        categorie: String,
+        #[serde(default)]
+        days: f64,
+        #[serde(default)]
+        description: String,
+    },
+    /// champs à `None` inchangés ; `before` : valeurs d'origine pour l'affichage
+    UpdateAccount {
+        alias: String,
+        title: Option<String>,
+        categorie: Option<String>,
+        days: Option<f64>,
+        description: Option<String>,
+        #[serde(default)]
+        before: Map<String, Value>,
+    },
+    /// heures de toute la semaine contenant `date` (remplacées), par jour puis par compte
+    SaveImputations {
+        date: String,
+        #[serde(default)]
+        week: String,
+        hours: Hours,
+        #[serde(default)]
+        comment: String,
+        #[serde(default)]
+        before: Hours,
+    },
+    /// date de saisie des imputations dans l'outil officiel, ajoutée ou retirée
+    Saisie { date: String, done: bool },
+    /// résumé(s) de mails ou de messages ajoutés à l'inbox
+    InboxAdd { text: String },
+    InboxDiscard {
+        path: String,
+        #[serde(default)]
+        preview: String,
+    },
+    /// élément de l'inbox traité selon l'analyse habituelle (échange, tâches, journal)
+    InboxApply { path: String, proposal: InboxProposal },
+    /// rapport hebdomadaire de la semaine contenant `date` (généré à la validation)
+    WeeklyReport {
+        date: Option<String>,
+        #[serde(default)]
+        week: String,
+        #[serde(default)]
+        extra: String,
+    },
+    /// rapport d'avancement d'une tâche (généré à la validation)
+    TaskReport {
+        task_id: String,
+        #[serde(default)]
+        title: String,
+    },
 }
 
 fn check_date(value: Option<&str>) -> Result<Option<String>> {
@@ -166,6 +249,13 @@ fn check_choice(field: &str, value: Option<String>, allowed: &[&str]) -> Result<
         Some(v) if !allowed.contains(&v.as_str()) => {
             Err(vault_err(format!("{field} invalide : {v} (valeurs : {})", allowed.join(", "))))
         }
+        other => Ok(other),
+    }
+}
+
+fn check_days(value: Option<f64>) -> Result<Option<f64>> {
+    match value {
+        Some(days) if !days.is_finite() || days < 0.0 => Err(vault_err(format!("Nombre de jours invalide : {days}"))),
         other => Ok(other),
     }
 }
@@ -338,10 +428,136 @@ struct UnlinkArgs {
     target: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WeekArgs {
+    #[serde(default)]
+    week: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DateArgs {
+    #[serde(default)]
+    date: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoArgs {}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskMoveArgs {
+    task_id: String,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    before: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TitleArgs {
+    title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectMoveArgs {
+    project_id: String,
+    #[serde(default)]
+    before: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectAccountArgs {
+    project_id: String,
+    #[serde(default)]
+    compte: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccountCreateArgs {
+    title: String,
+    alias: String,
+    #[serde(default)]
+    categorie: Option<String>,
+    #[serde(default)]
+    days: Option<f64>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AccountUpdateArgs {
+    alias: String,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    categorie: Option<String>,
+    #[serde(default)]
+    days: Option<f64>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ImputationsArgs {
+    date: String,
+    hours: Hours,
+    #[serde(default)]
+    comment: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SaisieArgs {
+    date: String,
+    done: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TextArgs {
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PathArgs {
+    path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WeeklyReportArgs {
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    extra: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TaskIdArgs {
+    task_id: String,
+}
+
 /// Résultat d'un outil : des données pour le modèle, ou une proposition à valider.
 enum ToolOutput {
     Data(Value),
-    Proposal(ChatProposal),
+    Proposal(Box<ChatProposal>),
+}
+
+impl ToolOutput {
+    fn proposal(proposal: ChatProposal) -> Self {
+        ToolOutput::Proposal(Box::new(proposal))
+    }
 }
 
 // --- définition des outils (schémas json des arguments) ---------------------------
@@ -382,6 +598,25 @@ fn read_tools() -> Vec<ToolDef> {
              object(&["id"], json!({"id": text("identifiant, ex. T-001")}))),
         tool("task_events", "Événements d'historique des tâches sur une période (créations, statuts, notes).",
              object(&["start", "end"], json!({"start": date("début"), "end": date("fin")}))),
+        tool("task_board", "Board d'une semaine : tâches planifiées cette semaine-là, avec leur statut.",
+             object(&[], json!({"week": text("semaine AAAA-Snn, la semaine courante par défaut")}))),
+        tool("task_backlog", "Backlog : toutes les tâches dans l'ordre du backlog (rang au sein de leur projet).",
+             object(&[], json!({}))),
+        tool("list_projects", "Projets (features du backlog), dans l'ordre du backlog, avec leur compte d'imputation.",
+             object(&[], json!({}))),
+        tool("list_accounts", "Comptes d'imputation : alias, catégorie, jours prévus, consommés et restants.",
+             object(&[], json!({}))),
+        tool("get_imputations", "Heures imputées sur la semaine contenant une date, par jour et par compte.",
+             object(&[], json!({"date": date("un jour de la semaine, aujourd'hui par défaut")}))),
+        tool("suggest_imputations",
+             "Répartition des heures de la semaine proposée à partir de l'activité (tâches, réunions, journal). \
+              Ne modifie rien : sert à préparer propose_imputations.",
+             object(&[], json!({"date": date("un jour de la semaine, aujourd'hui par défaut")}))),
+        tool("imputation_tracking", "Dates de saisie des imputations dans l'outil officiel et périodes à compléter.",
+             object(&[], json!({}))),
+        tool("list_inbox", "Éléments en attente dans l'inbox (résumés de mails ou de messages Teams).",
+             object(&[], json!({}))),
+        tool("list_drafts", "Brouillons de l'espace Draft (titre et début du contenu).", object(&[], json!({}))),
     ]
 }
 
@@ -453,7 +688,78 @@ fn proposal_tools() -> Vec<ToolDef> {
              object(&["name", "target"], json!({
                  "name": text("note à modifier (lien, nom ou chemin)"), "target": text("note dont retirer les liens"),
              }))),
+        tool("propose_task_move",
+             &format!("{PROPOSAL}place une tâche dans le backlog : dans un projet (chaîne vide : sans projet), \
+                       avant une autre tâche de ce projet (à la fin sans before)."),
+             object(&["task_id"], json!({
+                 "task_id": text("tâche à déplacer"), "project": text("identifiant du projet de destination"),
+                 "before": text("tâche devant laquelle se placer"),
+             }))),
+        tool("propose_project_create", &format!("{PROPOSAL}nouveau projet (feature du backlog)."),
+             object(&["title"], json!({"title": text("nom du projet")}))),
+        tool("propose_project_move", &format!("{PROPOSAL}ordre d'un projet dans le backlog."),
+             object(&["project_id"], json!({
+                 "project_id": text("identifiant du projet"), "before": text("projet devant lequel se placer (fin sinon)"),
+             }))),
+        tool("propose_project_account", &format!("{PROPOSAL}compte d'imputation d'un projet (absent : détacher)."),
+             object(&["project_id"], json!({"project_id": text("identifiant du projet"), "compte": text("alias du compte")}))),
+        tool("propose_account_create", &format!("{PROPOSAL}nouveau compte d'imputation."),
+             object(&["title", "alias"], json!({
+                 "title": text("nom du compte"), "alias": text("alias court, sans espace (ex. SAP-MIG)"),
+                 "categorie": choice(&CATEGORIES), "days": {"type": "number", "description": "jours prévus"},
+                 "description": text("description"),
+             }))),
+        tool("propose_account_update", &format!("{PROPOSAL}modification d'un compte d'imputation."),
+             object(&["alias"], json!({
+                 "alias": text("alias du compte"), "title": text("nouveau nom"), "categorie": choice(&CATEGORIES),
+                 "days": {"type": "number", "description": "jours prévus"},
+                 "description": text("description (vide pour la retirer)"),
+             }))),
+        tool("propose_imputations",
+             &format!("{PROPOSAL}heures de la semaine contenant date. Toute la semaine est remplacée : reprends \
+                       les heures existantes (get_imputations) à conserver. 8 h par jour ouvré."),
+             object(&["date", "hours"], json!({
+                 "date": date("un jour de la semaine"),
+                 "hours": {"type": "object", "description": "par jour (AAAA-MM-JJ) puis par alias de compte : heures, \
+                           ex. {\"2026-10-19\": {\"SAP-MIG\": 6, \"TRANSVERSE\": 2}}",
+                           "additionalProperties": {"type": "object", "additionalProperties": {"type": "number"}}},
+                 "comment": text("commentaire de la semaine"),
+             }))),
+        tool("propose_saisie",
+             &format!("{PROPOSAL}date de saisie des imputations dans l'outil officiel, ajoutée (done: true) ou retirée."),
+             object(&["date", "done"], json!({"date": date("date de saisie"), "done": {"type": "boolean"}}))),
+        tool("propose_inbox_add",
+             &format!("{PROPOSAL}résumé(s) de mails ou de messages à ajouter à l'inbox (plusieurs résumés \
+                       séparés par une ligne ---)."),
+             object(&["text"], json!({"text": text("résumé(s)")}))),
+        tool("propose_inbox_discard", &format!("{PROPOSAL}élément de l'inbox écarté (corbeille)."),
+             object(&["path"], json!({"path": text("chemin donné par list_inbox")}))),
+        tool("propose_inbox_process",
+             &format!("{PROPOSAL}traitement d'un élément de l'inbox : il est analysé comme dans l'espace Inbox \
+                       (note d'échange, tâches à créer ou mettre à jour, ligne de journal)."),
+             object(&["path"], json!({"path": text("chemin donné par list_inbox")}))),
+        tool("propose_weekly_report",
+             &format!("{PROPOSAL}rapport hebdomadaire de la semaine contenant date, généré à la validation."),
+             object(&[], json!({
+                 "date": date("un jour de la semaine, aujourd'hui par défaut"),
+                 "extra": text("éléments à intégrer au rapport"),
+             }))),
+        tool("propose_task_report", &format!("{PROPOSAL}rapport d'avancement d'une tâche, généré à la validation."),
+             object(&["task_id"], json!({"task_id": text("identifiant, ex. T-001")}))),
     ]
+}
+
+/// Services sur lesquels l'agent s'appuie, pour consulter et pour appliquer les propositions.
+#[derive(Clone)]
+pub struct ChatDeps {
+    pub vault: Arc<Vault>,
+    pub index: Arc<Index>,
+    pub tasks: Arc<TaskService>,
+    pub journal: Arc<JournalService>,
+    pub inbox: Arc<InboxService>,
+    pub reports: Arc<ReportService>,
+    pub imputations: Arc<ImputationService>,
+    pub drafts: Arc<DraftService>,
 }
 
 pub struct ChatService {
@@ -461,22 +767,31 @@ pub struct ChatService {
     index: Arc<Index>,
     tasks: Arc<TaskService>,
     journal: Arc<JournalService>,
+    inbox: Arc<InboxService>,
+    reports: Arc<ReportService>,
+    imputations: Arc<ImputationService>,
+    drafts: Arc<DraftService>,
     llm: Arc<dyn Llm>,
     settings: Arc<Settings>,
     semantic: Option<Arc<SemanticIndex>>,
 }
 
 impl ChatService {
-    pub fn new(
-        vault: Arc<Vault>,
-        index: Arc<Index>,
-        tasks: Arc<TaskService>,
-        journal: Arc<JournalService>,
-        llm: Arc<dyn Llm>,
-        settings: Arc<Settings>,
-        semantic: Option<Arc<SemanticIndex>>,
-    ) -> Self {
-        ChatService { vault, index, tasks, journal, llm, settings, semantic: semantic.filter(|s| s.enabled()) }
+    pub fn new(deps: ChatDeps, llm: Arc<dyn Llm>, settings: Arc<Settings>, semantic: Option<Arc<SemanticIndex>>) -> Self {
+        let ChatDeps { vault, index, tasks, journal, inbox, reports, imputations, drafts } = deps;
+        ChatService {
+            vault,
+            index,
+            tasks,
+            journal,
+            inbox,
+            reports,
+            imputations,
+            drafts,
+            llm,
+            settings,
+            semantic: semantic.filter(|s| s.enabled()),
+        }
     }
 
     /// Outils proposés au modèle (avec la recherche sémantique si elle est active).
@@ -614,6 +929,81 @@ impl ChatService {
         ))
     }
 
+    fn task_ref(t: &Task) -> Value {
+        json!({"id": t.id, "title": t.title, "status": t.status, "priority": t.priority, "project": t.project,
+               "due": t.due, "iteration": t.iteration, "lien": format!("[[{}]]", t.id)})
+    }
+
+    pub fn task_board(&self, week: Option<&str>) -> Result<Value> {
+        let board = self.tasks.board(week, None)?;
+        Ok(json!({"week": board.week, "current": board.current, "start": board.start, "end": board.end,
+                  "tasks": board.tasks.iter().map(Self::task_ref).collect::<Vec<_>>()}))
+    }
+
+    pub fn task_backlog(&self) -> Result<Value> {
+        let backlog = self.tasks.backlog(None)?;
+        Ok(json!({"current": backlog.current,
+                  "weeks": backlog.weeks.iter().map(|w| w.label.clone()).collect::<Vec<_>>(),
+                  "tasks": backlog.tasks.iter().map(Self::task_ref).collect::<Vec<_>>()}))
+    }
+
+    pub fn list_projects(&self) -> Result<Value> {
+        Ok(Value::Array(
+            self.imputations
+                .projects_by_rank()?
+                .into_iter()
+                .map(|p| json!({"id": p.id, "title": p.title, "compte": p.compte, "lien": format!("[[{}]]", p.id)}))
+                .collect(),
+        ))
+    }
+
+    pub fn list_accounts(&self) -> Result<Value> {
+        Ok(Value::Array(
+            self.imputations
+                .accounts()?
+                .into_iter()
+                .map(|a| {
+                    json!({"alias": a.alias, "title": a.title, "categorie": a.categorie, "description": a.description,
+                           "days": a.days, "consumed_days": a.consumed_days, "remaining_days": a.remaining_days,
+                           "projects": a.projects})
+                })
+                .collect(),
+        ))
+    }
+
+    pub fn get_imputations(&self, date: Option<&str>) -> Result<Value> {
+        let week = self.imputations.week(date_or_today(date)?)?;
+        Ok(json!({"week": week.week, "days": week.days, "hours": week.hours, "totals": week.totals, "comment": week.comment}))
+    }
+
+    pub fn suggest_imputations(&self, date: Option<&str>) -> Result<Value> {
+        self.imputations.propose(date_or_today(date)?)
+    }
+
+    pub fn imputation_tracking(&self) -> Result<Value> {
+        Ok(serde_json::to_value(self.imputations.tracking(today())?).unwrap())
+    }
+
+    pub fn list_inbox(&self) -> Result<Value> {
+        Ok(Value::Array(
+            self.inbox
+                .list()?
+                .into_iter()
+                .map(|item| json!({"path": item.path, "contenu": clip(item.content.trim(), 3000)}))
+                .collect(),
+        ))
+    }
+
+    pub fn list_drafts(&self) -> Result<Value> {
+        Ok(Value::Array(
+            self.drafts
+                .list()?
+                .into_iter()
+                .map(|d| json!({"id": d.id, "title": d.title, "updated": d.updated, "debut": clip(d.content.trim(), 500)}))
+                .collect(),
+        ))
+    }
+
     // --- propositions (validées par l'utilisateur, voir apply) ---------------
 
     fn propose_task(&self, args: ProposeTaskArgs) -> Result<ChatProposal> {
@@ -700,6 +1090,184 @@ impl ChatService {
         Ok(ChatProposal::DeleteNote { path, title, backlinks })
     }
 
+    fn project_title(&self, project_id: &str) -> Result<String> {
+        self.imputations
+            .projects()?
+            .into_iter()
+            .find(|p| p.id == project_id)
+            .map(|p| p.title)
+            .ok_or_else(|| not_found(format!("Projet introuvable : {project_id} (voir list_projects)")))
+    }
+
+    fn account(&self, alias: &str) -> Result<Account> {
+        self.imputations
+            .accounts()?
+            .into_iter()
+            .find(|a| a.alias.eq_ignore_ascii_case(alias.trim()))
+            .ok_or_else(|| not_found(format!("Compte d'imputation introuvable : {alias} (voir list_accounts)")))
+    }
+
+    fn propose_task_move(&self, args: TaskMoveArgs) -> Result<ChatProposal> {
+        let task = self.tasks.get(&args.task_id)?.task;
+        let project = args.project.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+        if let Some(project) = &project {
+            self.project_title(project)?;
+        }
+        let before = args.before.map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+        if let Some(before) = &before {
+            let other = self.tasks.get(before)?.task;
+            if other.id == task.id {
+                return Err(vault_err("Une tâche ne peut pas se placer devant elle-même"));
+            }
+            if other.project != project {
+                return Err(vault_err(format!("La tâche {} n'est pas dans le projet de destination", other.id)));
+            }
+        }
+        Ok(ChatProposal::MoveTask { task_id: task.id, title: task.title, project, before })
+    }
+
+    fn propose_project_create(&self, title: &str) -> Result<ChatProposal> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(vault_err("Le nom du projet est obligatoire"));
+        }
+        if self.imputations.projects()?.iter().any(|p| p.title.to_lowercase() == title.to_lowercase()) {
+            return Err(vault_err(format!("Le projet « {title} » existe déjà")));
+        }
+        Ok(ChatProposal::CreateProject { title: title.into() })
+    }
+
+    fn propose_project_move(&self, args: ProjectMoveArgs) -> Result<ChatProposal> {
+        let title = self.project_title(&args.project_id)?;
+        let before = args.before.map(|b| b.trim().to_string()).filter(|b| !b.is_empty());
+        if let Some(before) = &before {
+            if *before == args.project_id {
+                return Err(vault_err("Un projet ne peut pas se placer devant lui-même"));
+            }
+            self.project_title(before)?;
+        }
+        Ok(ChatProposal::MoveProject { project_id: args.project_id, title, before })
+    }
+
+    fn propose_project_account(&self, args: ProjectAccountArgs) -> Result<ChatProposal> {
+        let project = self.imputations.projects()?.into_iter().find(|p| p.id == args.project_id);
+        let project = project.ok_or_else(|| not_found(format!("Projet introuvable : {} (voir list_projects)", args.project_id)))?;
+        let compte = match args.compte.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            Some(alias) => Some(self.account(alias)?.alias),
+            None => None,
+        };
+        if compte == project.compte {
+            return Err(vault_err("Le projet est déjà dans cet état"));
+        }
+        Ok(ChatProposal::SetProjectAccount { project_id: project.id, title: project.title, compte })
+    }
+
+    fn propose_account_create(&self, args: AccountCreateArgs) -> Result<ChatProposal> {
+        let (title, alias) = (args.title.trim().to_string(), args.alias.trim().to_string());
+        if title.is_empty() {
+            return Err(vault_err("Le nom du compte est obligatoire"));
+        }
+        if alias.is_empty() || alias.chars().any(char::is_whitespace) {
+            return Err(vault_err("Alias invalide : sans espace (ex. SAP-MIG)"));
+        }
+        if self.account(&alias).is_ok() || self.index.resolve_link(&alias)?.is_some() {
+            return Err(vault_err(format!("L'alias « {alias} » est déjà utilisé")));
+        }
+        let categorie = check_choice("categorie", args.categorie, &CATEGORIES)?.unwrap_or_else(|| CATEGORIES[0].into());
+        let days = check_days(args.days)?.unwrap_or(0.0);
+        Ok(ChatProposal::CreateAccount { title, alias, categorie, days, description: args.description.unwrap_or_default() })
+    }
+
+    fn propose_account_update(&self, args: AccountUpdateArgs) -> Result<ChatProposal> {
+        let account = self.account(&args.alias)?;
+        let title = args.title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && *t != account.title);
+        let categorie = check_choice("categorie", args.categorie, &CATEGORIES)?.filter(|c| *c != account.categorie);
+        let days = check_days(args.days)?.filter(|d| *d != account.days);
+        let description = args.description.map(|d| d.trim().to_string()).filter(|d| *d != account.description);
+        let mut before = Map::new();
+        for (key, changed, current) in [
+            ("title", title.is_some(), json!(account.title)),
+            ("categorie", categorie.is_some(), json!(account.categorie)),
+            ("days", days.is_some(), json!(account.days)),
+            ("description", description.is_some(), json!(account.description)),
+        ] {
+            if changed {
+                before.insert(key.into(), current);
+            }
+        }
+        if before.is_empty() {
+            return Err(vault_err("Aucune modification proposée"));
+        }
+        Ok(ChatProposal::UpdateAccount { alias: account.alias, title, categorie, days, description, before })
+    }
+
+    fn propose_imputations(&self, args: ImputationsArgs) -> Result<ChatProposal> {
+        let day = parse_date(&args.date)?;
+        let (start, end) = week_bounds(day);
+        let current = self.imputations.week(day)?;
+        let mut hours = Hours::new();
+        for (date, entries) in &args.hours {
+            let date = parse_date(date)?;
+            if date < start || date > end {
+                return Err(vault_err(format!("{date} n'appartient pas à la semaine {}", current.week)));
+            }
+            let mut kept = indexmap::IndexMap::new();
+            for (alias, value) in entries {
+                if !value.is_finite() || *value < 0.0 || *value > 24.0 {
+                    return Err(vault_err(format!("Heures invalides pour {alias} le {date} : {value}")));
+                }
+                if *value > 0.0 {
+                    *kept.entry(self.account(alias)?.alias).or_insert(0.0) += value;
+                }
+            }
+            if kept.values().sum::<f64>() > 24.0 {
+                return Err(vault_err(format!("Plus de 24 h le {date}")));
+            }
+            if !kept.is_empty() {
+                hours.insert(date.to_string(), kept);
+            }
+        }
+        hours.sort_keys();
+        let comment = args.comment.unwrap_or_else(|| current.comment.clone());
+        if hours == current.hours && comment.trim() == current.comment.trim() {
+            return Err(vault_err("Aucune modification proposée"));
+        }
+        Ok(ChatProposal::SaveImputations { date: day.to_string(), week: current.week, hours, comment, before: current.hours })
+    }
+
+    fn propose_saisie(&self, args: SaisieArgs) -> Result<ChatProposal> {
+        let date = parse_date(&args.date)?;
+        let known = self.imputations.saisies()?.contains(&date);
+        match (args.done, known) {
+            (true, true) => Err(vault_err(format!("La saisie du {date} est déjà enregistrée"))),
+            (false, false) => Err(vault_err(format!("Aucune saisie enregistrée le {date}"))),
+            _ => Ok(ChatProposal::Saisie { date: date.to_string(), done: args.done }),
+        }
+    }
+
+    fn propose_inbox_add(&self, text: &str) -> Result<ChatProposal> {
+        if split_summaries(text).is_empty() {
+            return Err(vault_err("Aucun résumé à ajouter"));
+        }
+        Ok(ChatProposal::InboxAdd { text: text.trim().into() })
+    }
+
+    /// Élément de l'inbox désigné par son chemin.
+    fn inbox_item(&self, path: &str) -> Result<InboxItem> {
+        let path = path.trim().replace('\\', "/");
+        self.inbox
+            .list()?
+            .into_iter()
+            .find(|item| item.path == path)
+            .ok_or_else(|| not_found(format!("Élément d'inbox introuvable : {path} (voir list_inbox)")))
+    }
+
+    fn propose_weekly_report(&self, args: WeeklyReportArgs) -> Result<ChatProposal> {
+        let date = check_date(args.date.as_deref())?;
+        let week = week_label(date_or_today(date.as_deref())?);
+        Ok(ChatProposal::WeeklyReport { date, week, extra: args.extra.unwrap_or_default().trim().into() })
+    }
+
     /// La cible d'un lien `[[nom]]` est-elle la note `target_path` ?
     fn points_to(&self, name: &str, target_path: &str) -> bool {
         name == target_path || self.index.resolve_link(name).ok().flatten().as_deref() == Some(target_path)
@@ -781,6 +1349,66 @@ impl ChatService {
                 self.index.remove(path)?;
                 Ok(json!({"path": Value::Null, "message": "Note supprimée (récupérable dans .trash)"}))
             }
+            ChatProposal::MoveTask { task_id, project, before, .. } => {
+                self.tasks.move_task(task_id, project.as_deref(), before.as_deref())?;
+                Ok(json!({"path": self.tasks.path_of(task_id)?, "message": format!("Tâche {task_id} déplacée dans le backlog")}))
+            }
+            ChatProposal::CreateProject { title } => {
+                let project = self.imputations.create_project(title)?;
+                Ok(json!({"path": project.path, "message": format!("Projet {} créé", project.id)}))
+            }
+            ChatProposal::MoveProject { project_id, before, .. } => {
+                self.imputations.move_project(project_id, before.as_deref())?;
+                Ok(json!({"path": Value::Null, "message": format!("Projet {project_id} déplacé dans le backlog")}))
+            }
+            ChatProposal::SetProjectAccount { project_id, compte, .. } => {
+                let project = self.imputations.set_project_account(project_id, compte.as_deref())?;
+                Ok(json!({"path": project.path, "message": format!("Compte du projet {project_id} mis à jour")}))
+            }
+            ChatProposal::CreateAccount { title, alias, categorie, days, description } => {
+                let account = self.imputations.create_account(title, alias, categorie, *days, description)?;
+                Ok(json!({"path": account.path, "message": format!("Compte {} créé", account.alias)}))
+            }
+            ChatProposal::UpdateAccount { alias, title, categorie, days, description, .. } => {
+                let account =
+                    self.imputations.update_account(alias, title.as_deref(), categorie.as_deref(), *days, description.as_deref())?;
+                Ok(json!({"path": account.path, "message": format!("Compte {} mis à jour", account.alias)}))
+            }
+            ChatProposal::SaveImputations { date, hours, comment, .. } => {
+                let week = self.imputations.save_week(parse_date(date)?, hours, comment)?;
+                Ok(json!({"path": week.path, "message": format!("Imputations {} enregistrées", week.week)}))
+            }
+            ChatProposal::Saisie { date, done } => {
+                let date = parse_date(date)?;
+                let tracking = if *done {
+                    self.imputations.add_saisie(date, today())?
+                } else {
+                    self.imputations.remove_saisie(date, today())?
+                };
+                let message = if *done { format!("Saisie du {date} enregistrée") } else { format!("Saisie du {date} retirée") };
+                Ok(json!({"path": tracking.path, "message": message}))
+            }
+            ChatProposal::InboxAdd { text } => {
+                let paths = self.inbox.add(text)?;
+                Ok(json!({"path": paths.first(), "message": format!("{} élément(s) ajouté(s) à l'inbox", paths.len())}))
+            }
+            ChatProposal::InboxDiscard { path, .. } => {
+                self.inbox.discard(path)?;
+                Ok(json!({"path": Value::Null, "message": "Élément de l'inbox écarté"}))
+            }
+            ChatProposal::InboxApply { path, proposal } => {
+                let result = self.inbox.apply(path, proposal)?;
+                Ok(json!({"path": result.get("echange").cloned().unwrap_or(Value::Null), "message": "Élément de l'inbox traité"}))
+            }
+            ChatProposal::WeeklyReport { date, extra, .. } => {
+                let day = date.as_deref().map(parse_date).transpose()?;
+                let result = self.reports.weekly(day, extra)?;
+                Ok(json!({"path": result["path"], "message": "Rapport hebdomadaire généré"}))
+            }
+            ChatProposal::TaskReport { task_id, .. } => {
+                let result = self.reports.task_report(task_id)?;
+                Ok(json!({"path": result["path"], "message": format!("Rapport de la tâche {task_id} généré")}))
+            }
             _ => {
                 // rejouée sur le contenu actuel ; le hash protège d'une écriture concurrente
                 let path = proposal_path(proposal);
@@ -823,36 +1451,86 @@ impl ChatService {
                 ToolOutput::Data(self.task_events(&a.start, &a.end)?)
             }
             "semantic_search" if self.semantic.is_some() => ToolOutput::Data(self.semantic_search(&args!(QueryArgs).query)?),
-            "propose_task" => ToolOutput::Proposal(self.propose_task(args!(ProposeTaskArgs))?),
-            "propose_task_update" => ToolOutput::Proposal(self.propose_task_update(args!(ProposeUpdateArgs))?),
-            "propose_journal_line" => ToolOutput::Proposal(self.propose_journal_line(args!(LineArgs))?),
-            "propose_note_create" => ToolOutput::Proposal(self.propose_note_create(args!(NoteCreateArgs))?),
+            "task_board" => ToolOutput::Data(self.task_board(args!(WeekArgs).week.as_deref())?),
+            "task_backlog" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.task_backlog()?)
+            }
+            "list_projects" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.list_projects()?)
+            }
+            "list_accounts" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.list_accounts()?)
+            }
+            "get_imputations" => ToolOutput::Data(self.get_imputations(args!(DateArgs).date.as_deref())?),
+            "suggest_imputations" => ToolOutput::Data(self.suggest_imputations(args!(DateArgs).date.as_deref())?),
+            "imputation_tracking" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.imputation_tracking()?)
+            }
+            "list_inbox" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.list_inbox()?)
+            }
+            "list_drafts" => {
+                args!(NoArgs);
+                ToolOutput::Data(self.list_drafts()?)
+            }
+            "propose_task_move" => ToolOutput::proposal(self.propose_task_move(args!(TaskMoveArgs))?),
+            "propose_project_create" => ToolOutput::proposal(self.propose_project_create(&args!(TitleArgs).title)?),
+            "propose_project_move" => ToolOutput::proposal(self.propose_project_move(args!(ProjectMoveArgs))?),
+            "propose_project_account" => ToolOutput::proposal(self.propose_project_account(args!(ProjectAccountArgs))?),
+            "propose_account_create" => ToolOutput::proposal(self.propose_account_create(args!(AccountCreateArgs))?),
+            "propose_account_update" => ToolOutput::proposal(self.propose_account_update(args!(AccountUpdateArgs))?),
+            "propose_imputations" => ToolOutput::proposal(self.propose_imputations(args!(ImputationsArgs))?),
+            "propose_saisie" => ToolOutput::proposal(self.propose_saisie(args!(SaisieArgs))?),
+            "propose_inbox_add" => ToolOutput::proposal(self.propose_inbox_add(&args!(TextArgs).text)?),
+            "propose_inbox_discard" => {
+                let item = self.inbox_item(&args!(PathArgs).path)?;
+                ToolOutput::proposal(ChatProposal::InboxDiscard { path: item.path, preview: item.preview })
+            }
+            "propose_inbox_process" => {
+                let item = self.inbox_item(&args!(PathArgs).path)?;
+                let proposal = self.inbox.analyze(&item.path)?;
+                ToolOutput::proposal(ChatProposal::InboxApply { path: item.path, proposal })
+            }
+            "propose_weekly_report" => ToolOutput::proposal(self.propose_weekly_report(args!(WeeklyReportArgs))?),
+            "propose_task_report" => {
+                let task = self.tasks.get(&args!(TaskIdArgs).task_id)?.task;
+                ToolOutput::proposal(ChatProposal::TaskReport { task_id: task.id, title: task.title })
+            }
+            "propose_task" => ToolOutput::proposal(self.propose_task(args!(ProposeTaskArgs))?),
+            "propose_task_update" => ToolOutput::proposal(self.propose_task_update(args!(ProposeUpdateArgs))?),
+            "propose_journal_line" => ToolOutput::proposal(self.propose_journal_line(args!(LineArgs))?),
+            "propose_note_create" => ToolOutput::proposal(self.propose_note_create(args!(NoteCreateArgs))?),
             "propose_note_edit" => {
                 let a = args!(NoteEditArgs);
                 let (path, title) = self.target(&a.name)?;
-                ToolOutput::Proposal(self.checked(ChatProposal::EditNote { path, title, edits: a.edits })?)
+                ToolOutput::proposal(self.checked(ChatProposal::EditNote { path, title, edits: a.edits })?)
             }
             "propose_note_append" => {
                 let a = args!(NoteAppendArgs);
                 let (path, title) = self.target(&a.name)?;
                 let section = a.section.filter(|s| !s.trim().is_empty()).map(|s| heading(&s));
-                ToolOutput::Proposal(self.checked(ChatProposal::AppendNote { path, title, section, text: a.text })?)
+                ToolOutput::proposal(self.checked(ChatProposal::AppendNote { path, title, section, text: a.text })?)
             }
-            "propose_note_meta" => ToolOutput::Proposal(self.propose_note_meta(args!(NoteMetaArgs))?),
-            "propose_note_delete" => ToolOutput::Proposal(self.propose_note_delete(&args!(NameArgs).name)?),
+            "propose_note_meta" => ToolOutput::proposal(self.propose_note_meta(args!(NoteMetaArgs))?),
+            "propose_note_delete" => ToolOutput::proposal(self.propose_note_delete(&args!(NameArgs).name)?),
             "propose_link" => {
                 let a = args!(LinkArgs);
                 let (path, title) = self.target(&a.name)?;
                 let (link, target_path) = self.link_to(&a.target)?;
                 let field = a.field.filter(|f| !f.trim().is_empty());
                 let section = a.section.filter(|s| !s.trim().is_empty()).map(|s| heading(&s));
-                ToolOutput::Proposal(self.checked(ChatProposal::Link { path, title, link, target_path, field, section })?)
+                ToolOutput::proposal(self.checked(ChatProposal::Link { path, title, link, target_path, field, section })?)
             }
             "propose_unlink" => {
                 let a = args!(UnlinkArgs);
                 let (path, title) = self.target(&a.name)?;
                 let (link, target_path) = self.link_to(&a.target)?;
-                ToolOutput::Proposal(self.checked(ChatProposal::Unlink { path, title, link, target_path })?)
+                ToolOutput::proposal(self.checked(ChatProposal::Unlink { path, title, link, target_path })?)
             }
             _ => {
                 return Ok(Err(format!("Erreur : outil inconnu « {name} ». Outils : {}.", self.tool_names().join(", "))));
@@ -873,7 +1551,7 @@ impl ChatService {
         };
         match output {
             ToolOutput::Proposal(proposal) => {
-                proposals.push(proposal);
+                proposals.push(*proposal);
                 Ok(format!(
                     "Proposition n°{} enregistrée : elle sera soumise à l'utilisateur, qui la validera ou non.",
                     proposals.len()

@@ -56,7 +56,7 @@ fn de_opt_status<'de, D: Deserializer<'de>>(d: D) -> std::result::Result<Option<
     Ok(de::opt_string(d)?.filter(|s| STATUSES.contains(&s.as_str())))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EchangeProposal {
     #[serde(default = "default_source", deserialize_with = "de_source")]
     pub source: String,
@@ -74,7 +74,7 @@ pub struct EchangeProposal {
     pub summary: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewTaskProposal {
     #[serde(default = "de::yes", deserialize_with = "de::bool_true")]
     pub accepted: bool,
@@ -100,7 +100,7 @@ fn a_faire() -> String {
     "a_faire".into()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TaskUpdateProposal {
     #[serde(default = "de::yes", deserialize_with = "de::bool_true")]
     pub accepted: bool,
@@ -112,7 +112,7 @@ pub struct TaskUpdateProposal {
     pub note: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InboxProposal {
     pub echange: EchangeProposal,
     #[serde(default)]
