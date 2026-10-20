@@ -324,8 +324,9 @@ export default function ChatView({ config, conversation, live, onSend, onReplace
       </div>
 
       <div className="chat-input">
-        <textarea rows={2} value={draft} disabled={!config.llm_enabled}
-          placeholder="Poser une question ou demander une action…  (Entrée : envoyer, Maj+Entrée : retour à la ligne)"
+        <textarea rows={3} value={draft} disabled={!config.llm_enabled}
+          placeholder="Poser une question ou demander une action…"
+          title="Entrée : envoyer, Maj+Entrée : retour à la ligne, Alt+C : réduire le chat"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {

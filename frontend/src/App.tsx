@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, NoteSummary } from "./api";
 import { ChatEntry, useChats } from "./chats";
-import ChatView from "./components/ChatView";
+import ChatPanel, { useChatPanel } from "./components/ChatPanel";
 import DraftsView from "./components/DraftsView";
 import EditorPane, { EditorActions } from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
@@ -12,7 +12,7 @@ import QuickOpen from "./components/QuickOpen";
 import ReportsView from "./components/ReportsView";
 import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
-import { ChatSidebar, ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
+import { ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
 import TasksView, { TasksTab } from "./components/TasksView";
 import { goBack, goForward, href, matchShortcut, navigate, noteHref, Space, SPACES, useRoute } from "./router";
 
@@ -49,16 +49,17 @@ export default function App() {
     window.setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), error || action ? 7000 : 3500);
   }, []);
 
+  const [chatPanel, setChatPanel] = useChatPanel();
   const chat = useChats({
-    onCreated: (c) => navigate(href("chat", null, { c })),
+    onCreated: (current) => setChatPanel({ current }),
     onFinished: (conversation, seen, error) => {
       if (seen) return;
-      const open = () => navigate(href("chat", null, { c: conversation.id }));
+      const open = () => setChatPanel({ open: true, current: conversation.id });
       notify(`${error ? "Échec de l'agent" : "Réponse de l'agent prête"} : « ${conversation.title} »`, error, open);
     },
   });
-  // la conversation affichée est marquée comme lue
-  const viewedChat = space === "chat" && !path ? params.c ?? null : null;
+  // la conversation affichée dans le panneau déplié est marquée comme lue
+  const viewedChat = chatPanel.open ? chatPanel.current : null;
   useEffect(() => chat.view(viewedChat), [chat.view, viewedChat]);
 
   // l'index change (édition ici ou dans un autre éditeur) : on rafraîchit les listes
@@ -101,7 +102,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Alt+1…7 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
+      // Alt+1…6 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
       const index = Number(e.key) - 1;
       if (e.altKey && !e.ctrlKey && index >= 0 && index < SPACES.length) {
         e.preventDefault();
@@ -111,10 +112,21 @@ export default function App() {
         e.preventDefault();
         setQuickOpen(true);
       }
+      // Alt+C : déplie le chat et passe à la saisie ; depuis la saisie, le réduit
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        const input = () => document.querySelector<HTMLTextAreaElement>(".chat-panel textarea");
+        if (chatPanel.open && document.activeElement === input()) {
+          setChatPanel({ open: false });
+        } else {
+          setChatPanel({ open: true });
+          window.setTimeout(() => input()?.focus(), 0);
+        }
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectSpace]);
+  }, [selectSpace, chatPanel.open, setChatPanel]);
 
   // vue précédente / suivante : raccourcis configurables (capturés avant l'éditeur, dont
   // Alt+flèche déplace sinon le curseur) et boutons latéraux de la souris
@@ -168,12 +180,6 @@ export default function App() {
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
     inbox: null,
     brouillons: null,
-    chat: <ChatSidebar chats={chat.chats} live={chat.live} current={params.c ?? null}
-      onSelect={(c) => navigate(href("chat", null, { c }))}
-      onDelete={(id) => {
-        chat.remove(id);
-        if (params.c === id) navigate(href("chat"));
-      }} />,
   }[space];
 
   const home = {
@@ -184,21 +190,14 @@ export default function App() {
     imputations: <ImputationsView config={config} revision={revision} date={params.date ?? null}
       onDate={(date) => navigate(href("imputations", null, { date }))} onOpen={open} notify={notify} />,
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
-    chat: <ChatView config={config} conversation={chat.chats.find((c) => c.id === params.c) ?? null}
-      live={(params.c && chat.live[params.c]) || null}
-      onSend={(question) => chat.send(params.c ?? null, question)}
-      onReplace={replaceChatEntry} onOpen={open} notify={notify} />,
     brouillons: <DraftsView config={config} files={files} current={params.d ?? null}
       onSelect={(d) => navigate(href("brouillons", null, { d }))} onOpen={open} notify={notify} />,
   }[space];
 
-  const layout = [sidebar ? "with-sidebar" : "", path ? "with-right" : ""].join(" ");
-
   return (
-    <div className={`app ${layout}`}>
+    <div className="app">
       <SpaceBar current={space} onSelect={selectSpace} shortcuts={config.shortcuts}
-        badges={{ inbox: inboxCount, imputations: imputationMissing, chat: chat.chats.filter((c) => c.unread).length }}
-        busy={{ chat: Object.keys(chat.live).length > 0 }} />
+        badges={{ inbox: inboxCount, imputations: imputationMissing }} />
       {sidebar}
 
       <main>
@@ -210,6 +209,14 @@ export default function App() {
 
       {path && <RightPanel path={path} revision={revision} semantic={config.semantic_enabled} onOpen={open}
         onLink={(name) => editorActions.current.appendLink?.(name)} />}
+
+      <ChatPanel config={config} panel={chatPanel} onPanel={setChatPanel} chats={chat.chats} live={chat.live}
+        onSend={(question) => chat.send(chatPanel.current, question)}
+        onReplace={replaceChatEntry} onOpen={open} notify={notify}
+        onDelete={(id) => {
+          chat.remove(id);
+          if (chatPanel.current === id) setChatPanel({ current: null });
+        }} />
 
       {quickOpen && <QuickOpen files={files} onOpen={open} onClose={() => setQuickOpen(false)} />}
 

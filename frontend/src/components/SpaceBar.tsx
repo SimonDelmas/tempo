@@ -15,7 +15,6 @@ const ICONS: Record<Space, string> = {
   rapports: "M5 20V10 M10 20V4 M15 20v-7 M20 20v-11 M3 20h18",
   imputations: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 7v5l3 2",
   inbox: "M3 13l3-8h12l3 8v6H3z M3 13h5l1 3h6l1-3h5",
-  chat: "M4 5h16v11H9l-5 4z M8 9h8 M8 12h5",
   brouillons: "M4 20h4l11-11-4-4L4 16z M13 7l4 4 M4 20h16",
 };
 

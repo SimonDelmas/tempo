@@ -292,7 +292,11 @@ modèle). Côté interface, conversations et réponses en
 cours sont tenues au niveau de l'application (`useChats` dans `chats.ts`), pas dans la vue :
 la diffusion survit au changement d'espace, plusieurs conversations peuvent attendre une
 réponse en même temps, et une réponse terminée hors de vue marque la conversation `unread`
-et déclenche une notification cliquable.
+et déclenche une notification cliquable. Le chat n'est pas un espace routé : c'est un
+panneau à droite de l'application (`ChatPanel.tsx`), toujours monté, réductible et
+redimensionnable ; son état (déplié, largeur, conversation affichée) est gardé dans le
+stockage local (`tempo.chatPanel`). Une conversation n'est « vue » que si le panneau est
+déplié sur elle.
 
 ## Recherche sémantique
 
@@ -328,4 +332,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
 - [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
 - [x] Tâches en backlog (ordre par glisser-déposer, projets comme features) et board par itération hebdomadaire avec report automatique
+- [x] Chat dans un panneau latéral droit accessible depuis tous les espaces (réductible, redimensionnable, Alt+C)
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

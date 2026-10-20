@@ -55,7 +55,7 @@ http://localhost:5173.
 ## Utilisation
 
 - **Navigation** : la barre de gauche donne accès aux espaces Notes, Tâches, Rapports,
-  Imputations, Inbox, Chat et Draft (Alt+1…7), chacun avec sa propre barre latérale. Chaque page a son
+  Imputations, Inbox et Draft (Alt+1…6), chacun avec sa propre barre latérale. Chaque page a son
   adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
   arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
@@ -63,7 +63,11 @@ http://localhost:5173.
   la barre (Alt+← / Alt+→, ou les boutons latéraux de la souris) reviennent à la vue
   précédente et passent à la suivante ; raccourcis modifiables avec `TEMPO_SHORTCUT_BACK` et
   `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`).
-- **Chat** : questions en langage naturel sur les notes et les tâches. L'agent consulte le
+- **Chat** : panneau à droite de l'application, accessible depuis tous les espaces. Il se
+  réduit en une barre étroite (bouton », Alt+C ; Alt+C le déplie et place le curseur dans la
+  saisie) et se redimensionne en glissant son bord gauche (double-clic : largeur par défaut) ;
+  largeur, état et conversation affichée sont mémorisés. Le bouton ☰ liste les conversations,
+  + en démarre une nouvelle. Questions en langage naturel sur les notes et les tâches. L'agent consulte le
   vault (recherche par mots ou par phrase, recherche exacte ou par expression régulière,
   recherche par nom de note ou par propriété du frontmatter — ex. les réunions où une personne
   était présente —, lecture de notes, liste et historique des tâches), cite ses sources en
@@ -79,9 +83,9 @@ http://localhost:5173.
   aperçu avant / après ; rien n'est écrit avant « Appliquer », et une proposition validée
   s'applique au contenu du moment (plusieurs propositions sur la même note se valident l'une
   après l'autre). Les conversations sont conservées dans l'application (stockage local du navigateur intégré).
-  Une réponse continue en arrière-plan quand on change d'espace ou de conversation (point animé
-  sur l'icône Chat) ; si elle se termine hors de la conversation, une notification cliquable
-  l'annonce et la conversation est marquée non lue (pastille dans la liste, compteur sur Chat).
+  Une réponse continue en arrière-plan quand on change de conversation ou réduit le panneau (point animé
+  sur le panneau réduit) ; si elle se termine hors de vue, une notification cliquable
+  l'annonce et la conversation est marquée non lue (pastille dans la liste, compteur sur le panneau réduit).
 - **Recherche sémantique** (si `TEMPO_EMBED_MODEL` est renseigné) : bouton ≈ à côté de la
   recherche des notes, suggestions de liens (notes proches pas encore liées) dans le panneau
   de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont

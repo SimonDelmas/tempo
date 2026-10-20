@@ -68,7 +68,7 @@ type ChatEvents = {
 
 /**
  * Conversations et réponses en cours, tenues au niveau de l'application : une réponse
- * continue de se diffuser quand on quitte l'espace Chat, et on la retrouve en revenant.
+ * continue de se diffuser quand on change de conversation ou réduit le panneau de chat.
  */
 export function useChats({ onCreated, onFinished }: ChatEvents) {
   const [chats, setChats] = useState<Conversation[]>(loadChats);
