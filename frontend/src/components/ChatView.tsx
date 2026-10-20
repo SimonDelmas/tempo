@@ -25,6 +25,8 @@ const SUGGESTIONS = [
 
 const TOOL_LABELS: Record<string, string> = {
   search_notes: "Recherche",
+  grep_notes: "Recherche exacte",
+  find_notes: "Recherche de notes",
   read_note: "Lecture",
   list_notes: "Notes",
   list_tasks: "Tâches",

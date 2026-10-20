@@ -11,6 +11,7 @@ use regex::Regex;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::Serialize;
 use serde_json::Value;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::error::Result;
 use crate::vault::{content_hash, split_frontmatter, truthy, value_str, Meta, Vault};
@@ -106,6 +107,11 @@ impl NoteRow {
         })
     }
 
+    /// Modèle de note (`_templates/`), quel que soit le `type` de son frontmatter.
+    pub fn is_template(&self) -> bool {
+        self.kind == "modele" || infer_type(&self.path) == "modele"
+    }
+
     /// Nom utilisé dans les liens : l'alias s'il existe, sinon le nom du fichier.
     pub fn link_name(&self) -> &str {
         if self.alias.is_empty() { &self.stem } else { &self.alias }
@@ -126,6 +132,30 @@ pub struct SearchHit {
     pub kind: String,
     pub date: String,
     pub snippet: String,
+}
+
+/// Ligne d'une note trouvée par [`Index::grep`] (numérotée à partir de 1).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GrepHit {
+    pub path: String,
+    pub line: usize,
+    pub text: String,
+}
+
+/// Combinaison des mots d'une recherche plein texte.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SearchMode {
+    /// tous les mots, en préfixe
+    Words,
+    /// les mots dans l'ordre, côte à côte
+    Phrase,
+    /// l'un des mots au moins
+    Any,
+}
+
+/// Texte comparable sans casse ni accents.
+pub fn fold(text: &str) -> String {
+    text.trim().nfkd().filter(|c| !('\u{300}'..='\u{36f}').contains(c)).collect::<String>().to_lowercase()
 }
 
 pub struct Index {
@@ -333,12 +363,69 @@ impl Index {
         self.query("SELECT * FROM notes WHERE json_extract(meta, ?) = ?", params![format!("$.{key}"), value])
     }
 
+    /// Notes dont le nom de fichier, l'alias ou le titre contient `name`, d'un type donné, et
+    /// dont le frontmatter a les valeurs demandées (pour une liste : l'un de ses éléments). Les
+    /// comparaisons ignorent la casse et les accents ; un lien `[[x]]` vaut `x`.
+    pub fn find_notes(&self, name: Option<&str>, kind: Option<&str>, meta: &[(String, String)]) -> Result<Vec<NoteRow>> {
+        let name = name.map(fold).filter(|n| !n.is_empty());
+        let wanted: Vec<(&str, String)> = meta.iter().map(|(k, v)| (k.as_str(), fold(v))).collect();
+        let matches = |value: &Value, expected: &str| -> bool {
+            let same = |v: &Value| {
+                let text = value_str(v);
+                fold(&text) == expected || extract_links(&text).iter().any(|link| fold(link) == expected)
+            };
+            match value {
+                Value::Array(items) => items.iter().any(same),
+                other => same(other),
+            }
+        };
+        Ok(self
+            .list_notes(kind, None, None)?
+            .into_iter()
+            .filter(|n| !n.is_template())
+            .filter(|n| name.as_ref().is_none_or(|name| [&n.stem, &n.alias, &n.title].iter().any(|s| fold(s).contains(name))))
+            .filter(|n| wanted.iter().all(|(key, expected)| n.meta.get(*key).is_some_and(|v| matches(v, expected))))
+            .collect())
+    }
+
+    /// Lignes des notes (frontmatter compris) qui correspondent à `pattern`, dans l'ordre des
+    /// notes ; `folder` restreint aux chemins qui commencent par ce dossier.
+    pub fn grep(&self, pattern: &Regex, kind: Option<&str>, folder: Option<&str>, limit: usize) -> Result<Vec<GrepHit>> {
+        let folder = folder.map(|f| format!("{}/", f.trim().trim_matches('/'))).filter(|f| f != "/");
+        let mut hits = Vec::new();
+        for note in self.list_notes(kind, None, None)? {
+            if note.is_template() || folder.as_ref().is_some_and(|f| !note.path.starts_with(f.as_str())) {
+                continue;
+            }
+            let Ok(text) = self.vault.read_text(&note.path) else { continue };
+            for (i, line) in text.lines().enumerate() {
+                if pattern.is_match(line) {
+                    hits.push(GrepHit { path: note.path.clone(), line: i + 1, text: line.trim_end().to_string() });
+                    if hits.len() >= limit {
+                        return Ok(hits);
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    }
+
     pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+        self.search_with(query, SearchMode::Words, limit)
+    }
+
+    /// Recherche plein texte (titre et corps) : tous les mots (en préfixe), la phrase exacte,
+    /// ou l'un des mots.
+    pub fn search_with(&self, query: &str, mode: SearchMode, limit: usize) -> Result<Vec<SearchHit>> {
         let words: Vec<&str> = WORD_RE.find_iter(query).map(|m| m.as_str()).collect();
         if words.is_empty() {
             return Ok(Vec::new());
         }
-        let fts = words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" ");
+        let fts = match mode {
+            SearchMode::Words => words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" "),
+            SearchMode::Phrase => format!("\"{}\"", words.join(" ")),
+            SearchMode::Any => words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" OR "),
+        };
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT n.path, n.title, n.type, n.date, \

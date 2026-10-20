@@ -85,6 +85,20 @@ fn streaming_reads_server_sent_events() {
 }
 
 #[test]
+fn errors_inside_the_stream_are_reported() {
+    // Vibe signale par exemple un dépassement de quota dans le flux, avec un statut 200
+    let events = format!(
+        "data: {}\n\ndata: {}\n\n",
+        json!({"choices": [{"index": 0, "delta": {"content": "Bon"}}]}),
+        json!({"error": {"message": "exceeded token rate limit", "code": "429"}})
+    );
+    let (url, _rx) = serve_once("text/event-stream", events);
+    let llm = OpenAiCompatibleLlm::new(&url, "key", None).unwrap();
+    let error = llm.chat_tools(&[Msg::user("Salut")], "m", &[], true, &mut |_| {}).unwrap_err();
+    assert!(error.to_string().contains("exceeded token rate limit"), "{error}");
+}
+
+#[test]
 fn tool_calls_are_rebuilt_from_stream() {
     // forme des événements renvoyés par Vibe : id et nom d'abord, arguments ensuite, par index
     let chunks = [

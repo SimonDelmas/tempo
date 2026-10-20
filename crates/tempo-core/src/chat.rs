@@ -20,7 +20,7 @@ use crate::drafts::DraftService;
 use crate::error::{not_found, vault_err, Error, Result};
 use crate::imputations::{Account, Hours, ImputationService, CATEGORIES};
 use crate::inbox::{split_summaries, InboxItem, InboxProposal, InboxService};
-use crate::index::{extract_links, infer_type, Index, NoteRow};
+use crate::index::{extract_links, infer_type, Index, NoteRow, SearchMode};
 use crate::journal::{JournalService, NOTE_KINDS};
 use crate::llm::{Llm, Msg, ToolDef};
 use crate::prompts::CHAT_SYSTEM;
@@ -29,13 +29,16 @@ use crate::semantic::SemanticIndex;
 use crate::notes::{add_link, append_text, apply_edits, heading, remove_link, split_raw, update_meta, with_meta, TextEdit};
 use crate::tasks::{week_start, NewTask, Task, TaskService, EDITABLE_FIELDS, PRIORITIES, STATUSES};
 use crate::util::{clip, date_or_today, iso_date, parse_date, today, week_bounds, week_label};
-use crate::vault::{content_hash, split_frontmatter, Vault};
+use crate::vault::{content_hash, split_frontmatter, value_str, Vault};
 
 pub const MAX_STEPS: usize = 8;
 const MAX_NOTE_CHARS: usize = 8000;
 const MAX_RESULT_CHARS: usize = 12000;
 const MAX_HISTORY: usize = 20;
 const WEEKDAYS: [&str; 7] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
+/// modes de `search_notes`
+const SEARCH_MODES: [&str; 3] = ["mots", "phrase", "ou"];
+const MAX_GREP_HITS: usize = 60;
 /// types proposés à `list_notes` (les tâches ont leur propre outil)
 const LISTED_KINDS: [&str; 9] = ["reunion", "echange", "journal", "sujet", "projet", "personne", "ressource", "formation", "rapport"];
 
@@ -291,6 +294,37 @@ fn parse_arguments(raw: &str) -> std::result::Result<Map<String, Value>, String>
 #[serde(deny_unknown_fields)]
 struct QueryArgs {
     query: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SearchArgs {
+    query: String,
+    #[serde(default)]
+    mode: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GrepArgs {
+    pattern: String,
+    #[serde(default)]
+    regex: bool,
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+    #[serde(default)]
+    folder: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FindArgs {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+    #[serde(default)]
+    meta: Map<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -574,6 +608,12 @@ fn choice(values: &[&str]) -> Value {
     json!({"type": "string", "enum": values})
 }
 
+/// Filtre facultatif sur le type de note (les modèles ont tendance à le remplir sinon).
+fn any_kind() -> Value {
+    json!({"type": "string", "enum": LISTED_KINDS,
+           "description": "facultatif : limite à un type de note ; à omettre pour chercher dans toutes les notes"})
+}
+
 /// Schéma d'un objet d'arguments : `required` liste les arguments obligatoires.
 fn object(required: &[&str], properties: Value) -> Value {
     json!({"type": "object", "properties": properties, "required": required, "additionalProperties": false})
@@ -586,8 +626,32 @@ fn tool(name: &'static str, description: &str, parameters: Value) -> ToolDef {
 /// Outils de consultation, en lecture seule.
 fn read_tools() -> Vec<ToolDef> {
     vec![
-        tool("search_notes", "Recherche plein texte dans toutes les notes (porte sur des mots).",
-             object(&["query"], json!({"query": text("mots-clés")}))),
+        tool("search_notes", "Recherche plein texte dans le titre et le corps des notes (porte sur des mots), \
+                              classée par pertinence.",
+             object(&["query"], json!({
+                 "query": text("mots-clés"),
+                 "mode": {"type": "string", "enum": SEARCH_MODES,
+                          "description": "mots : tous les mots (par défaut) ; phrase : les mots côte à côte ; ou : l'un des mots"},
+             }))),
+        tool("grep_notes",
+             "Recherche exacte (ou par expression régulière) ligne par ligne dans le texte complet des notes, \
+              frontmatter compris, sans tenir compte de la casse. Renvoie les lignes trouvées : utile pour une \
+              référence, une date, une adresse, ou pour retrouver un passage exact avant propose_note_edit. \
+              Sans type ni dossier, un seul appel parcourt tout le vault (tâches comprises).",
+             object(&["pattern"], json!({
+                 "pattern": text("texte exact cherché (ou expression régulière si regex est vrai)"),
+                 "regex": {"type": "boolean", "description": "pattern est une expression régulière (syntaxe Rust)"},
+                 "type": any_kind(), "folder": text("facultatif : dossier du vault, ex. reunions/2026 (tout le vault sinon)"),
+             }))),
+        tool("find_notes",
+             "Notes par nom de fichier ou titre (morceau, sans tenir compte de la casse ni des accents), par type, \
+              et par valeurs du frontmatter (pour une liste, l'un de ses éléments ; [[x]] vaut x). Ex. réunions où \
+              Marc Leroy était présent : {\"type\": \"reunion\", \"meta\": {\"participants\": \"Marc Leroy\"}}.",
+             object(&[], json!({
+                 "name": text("morceau du nom ou du titre"), "type": any_kind(),
+                 "meta": {"type": "object", "description": "clé du frontmatter : valeur attendue",
+                          "additionalProperties": {"type": ["string", "number", "boolean"]}},
+             }))),
         tool("read_note", "Contenu d'une note (ou d'une tâche), avec les notes qui la mentionnent.",
              object(&["name"], json!({"name": text("lien [[…]], nom ou chemin de la note")}))),
         tool("list_notes", "Notes datées sur une période, éventuellement d'un type donné.",
@@ -821,16 +885,59 @@ impl ChatService {
         map
     }
 
-    pub fn search_notes(&self, query: &str) -> Result<Value> {
+    /// `mode` : `mots` (par défaut), `phrase` ou `ou`.
+    pub fn search_notes(&self, query: &str, mode: Option<&str>) -> Result<Value> {
+        let mode = match check_choice("mode", mode.map(String::from), &SEARCH_MODES)?.as_deref() {
+            Some("phrase") => SearchMode::Phrase,
+            Some("ou") => SearchMode::Any,
+            _ => SearchMode::Words,
+        };
         let mut results = Vec::new();
-        for hit in self.index.search(query, 12)? {
-            if let Some(note) = self.index.get(&hit.path)? {
+        for hit in self.index.search_with(query, mode, 12)? {
+            if let Some(note) = self.index.get(&hit.path)?.filter(|n| !n.is_template()) {
                 let mut item = Self::note_ref(&note);
                 item.insert("extrait".into(), hit.snippet.into());
                 results.push(Value::Object(item));
             }
         }
         Ok(Value::Array(results))
+    }
+
+    /// Lignes trouvées, regroupées par note. Le texte est cherché tel quel, sauf avec `regex`.
+    pub fn grep_notes(&self, pattern: &str, regex: bool, kind: Option<&str>, folder: Option<&str>) -> Result<Value> {
+        if pattern.is_empty() {
+            return Err(vault_err("Le texte cherché est vide"));
+        }
+        let source = if regex { pattern.to_string() } else { regex::escape(pattern) };
+        let pattern = regex::RegexBuilder::new(&source)
+            .case_insensitive(true)
+            .size_limit(1 << 20)
+            .build()
+            .map_err(|e| vault_err(format!("Expression régulière invalide : {e}")))?;
+        let hits = self.index.grep(&pattern, kind.filter(|k| !k.is_empty()), folder, MAX_GREP_HITS)?;
+        let mut notes: Vec<Map<String, Value>> = Vec::new();
+        for hit in &hits {
+            if notes.last().is_none_or(|n| n["chemin"] != hit.path.as_str()) {
+                let Some(note) = self.index.get(&hit.path)? else { continue };
+                let mut item = Self::note_ref(&note);
+                item.insert("lignes".into(), json!([]));
+                notes.push(item);
+            }
+            let text: String = hit.text.chars().take(200).collect();
+            notes.last_mut().unwrap()["lignes"].as_array_mut().unwrap().push(json!({"n": hit.line, "texte": text}));
+        }
+        let mut result = json!({"notes": notes});
+        if hits.len() >= MAX_GREP_HITS {
+            result["tronque"] = format!("{MAX_GREP_HITS} lignes au plus : précise la recherche").into();
+        }
+        Ok(result)
+    }
+
+    pub fn find_notes(&self, name: Option<&str>, kind: Option<&str>, meta: &Map<String, Value>) -> Result<Value> {
+        let meta: Vec<(String, String)> = meta.iter().map(|(k, v)| (k.clone(), value_str(v))).collect();
+        let notes = self.index.find_notes(name, kind.filter(|k| !k.is_empty()), &meta)?;
+        let skip = notes.len().saturating_sub(60);
+        Ok(Value::Array(notes[skip..].iter().map(|n| Value::Object(Self::note_ref(n))).collect()))
     }
 
     pub fn semantic_search(&self, query: &str) -> Result<Value> {
@@ -884,7 +991,7 @@ impl ChatService {
             .index
             .list_notes(kind, start, end)?
             .into_iter()
-            .filter(|n| !["modele", "inbox", "tache"].contains(&n.kind.as_str()))
+            .filter(|n| !n.is_template() && !["inbox", "tache"].contains(&n.kind.as_str()))
             .collect();
         let skip = notes.len().saturating_sub(60);
         Ok(Value::Array(notes[skip..].iter().map(|n| Value::Object(Self::note_ref(n))).collect()))
@@ -1435,7 +1542,18 @@ impl ChatService {
             };
         }
         let output = match name {
-            "search_notes" => ToolOutput::Data(self.search_notes(&args!(QueryArgs).query)?),
+            "search_notes" => {
+                let a = args!(SearchArgs);
+                ToolOutput::Data(self.search_notes(&a.query, a.mode.as_deref())?)
+            }
+            "grep_notes" => {
+                let a = args!(GrepArgs);
+                ToolOutput::Data(self.grep_notes(&a.pattern, a.regex, a.kind.as_deref(), a.folder.as_deref())?)
+            }
+            "find_notes" => {
+                let a = args!(FindArgs);
+                ToolOutput::Data(self.find_notes(a.name.as_deref(), a.kind.as_deref(), &a.meta)?)
+            }
             "read_note" => ToolOutput::Data(self.read_note(&args!(NameArgs).name)?),
             "list_notes" => {
                 let a = args!(ListNotesArgs);

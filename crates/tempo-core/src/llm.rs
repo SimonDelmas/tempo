@@ -317,9 +317,13 @@ impl OpenAiCompatibleLlm {
             if data == "[DONE]" {
                 break;
             }
-            if let Ok(event) = serde_json::from_str::<Value>(data) {
-                on_event(&event);
+            let Ok(event) = serde_json::from_str::<Value>(data) else { continue };
+            // erreur signalée dans le flux (le statut HTTP était 200)
+            if let Some(error) = event.get("error").filter(|e| !e.is_null()) {
+                let message = error.get("message").and_then(Value::as_str).map(String::from).unwrap_or_else(|| error.to_string());
+                return Err(Error::Llm(format!("Erreur de l'API LLM : {message}")));
             }
+            on_event(&event);
         }
         Ok(())
     }

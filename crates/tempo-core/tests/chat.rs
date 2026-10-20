@@ -37,7 +37,7 @@ fn args(value: Value) -> Map<String, Value> {
 fn tools_read_vault() {
     let c = common::ctx();
     let chat = make_chat(&c, FakeLlm::new(Vec::<String>::new()));
-    let hits = chat.search_notes("recette").unwrap();
+    let hits = chat.search_notes("recette", None).unwrap();
     assert!(hits.as_array().unwrap().iter().any(|h| h["lien"] == "[[T-004]]"));
     let note = chat.read_note("[[2026-10-15-copil-sap]]").unwrap();
     assert!(note["type"] == "reunion" && note["contenu"].as_str().unwrap().contains("Décisions"));
@@ -47,7 +47,22 @@ fn tools_read_vault() {
     let ids: Vec<&str> = en_cours.as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
     assert_eq!(ids, vec!["T-001"]);
     assert!(!chat.get_task("T-001").unwrap()["history"].as_array().unwrap().is_empty());
-    assert!(chat.list_notes(Some("reunion"), None, None).unwrap().as_array().unwrap().iter().all(|n| n["type"] == "reunion"));
+    let reunions = chat.list_notes(Some("reunion"), None, None).unwrap();
+    assert!(reunions.as_array().unwrap().iter().all(|n| n["type"] == "reunion"));
+    // le modèle de réunion (type: reunion) n'est pas une réunion
+    assert!(reunions.as_array().unwrap().iter().all(|n| !n["chemin"].as_str().unwrap().starts_with("_templates/")));
+    let hits = chat.search_notes("Participants Décisions Actions", None).unwrap();
+    assert!(hits.as_array().unwrap().iter().all(|n| !n["chemin"].as_str().unwrap().starts_with("_templates/")));
+
+    // recherche exacte, par regex, par nom et par frontmatter
+    let grep = chat.grep_notes("recette maintenue au 28", false, None, None).unwrap();
+    assert_eq!(grep["notes"][0]["lien"], "[[2026-10-15-copil-sap]]");
+    assert_eq!(grep["notes"][0]["lignes"][0]["texte"], "- Recette maintenue au 28 octobre.");
+    let grep = chat.grep_notes(r"\[\[T-00[34]\]\]", true, Some("reunion"), None).unwrap();
+    assert_eq!(grep["notes"].as_array().unwrap().len(), 1);
+    let found = chat.find_notes(None, Some("reunion"), json!({"participants": "Julie Bernard"}).as_object().unwrap()).unwrap();
+    assert_eq!(found[0]["lien"], "[[2026-10-15-copil-sap]]");
+    assert!(!chat.search_notes("procédure de recette", Some("phrase")).unwrap().as_array().unwrap().is_empty());
     assert!(!chat.task_events("2026-10-13", "2026-10-15").unwrap().as_array().unwrap().is_empty());
 }
 
@@ -60,6 +75,11 @@ fn tool_errors_are_returned_to_the_model() {
     assert!(run("read_note", json!({"nom": "x"})).starts_with("Erreur : arguments invalides"));
     assert!(run("read_note", json!({"name": "inexistante"})).starts_with("Erreur : Aucune note"));
     assert_eq!(run("search_notes", json!({"query": "zzzzz"})), "Aucun résultat.");
+    assert!(run("search_notes", json!({"query": "x", "mode": "regex"})).starts_with("Erreur : mode invalide"));
+    assert!(run("grep_notes", json!({"pattern": "(", "regex": true})).starts_with("Erreur : Expression régulière invalide"));
+    // texte cherché tel quel : les caractères spéciaux ne sont pas interprétés
+    assert!(run("grep_notes", json!({"pattern": "([[T-004]])"})).contains("procédure de recette"));
+    assert!(run("find_notes", json!({"meta": {"projects": "sap"}})).contains("copil-sap"));
 }
 
 #[test]

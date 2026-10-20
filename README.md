@@ -64,7 +64,9 @@ http://localhost:5173.
   précédente et passent à la suivante ; raccourcis modifiables avec `TEMPO_SHORTCUT_BACK` et
   `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`).
 - **Chat** : questions en langage naturel sur les notes et les tâches. L'agent consulte le
-  vault (recherche, lecture de notes, liste et historique des tâches), cite ses sources en
+  vault (recherche par mots ou par phrase, recherche exacte ou par expression régulière,
+  recherche par nom de note ou par propriété du frontmatter — ex. les réunions où une personne
+  était présente —, lecture de notes, liste et historique des tâches), cite ses sources en
   `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer ou
   mettre à jour une tâche (statut, titre, projet, semaine), d'ajouter une ligne au journal, de
   créer, modifier (passages, ajout dans une section, propriétés du frontmatter) ou supprimer

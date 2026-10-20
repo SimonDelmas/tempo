@@ -252,9 +252,17 @@ Agent en boucle d'outils (8 tours au plus) par le tool calling natif de l'API Op
 le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour,
 `tool_choice: none` le force à répondre. Chaque outil est décrit par un schéma JSON dont les
 `enum` reprennent `STATUSES`, `PRIORITIES` et les types de notes. Outils de consultation :
-`search_notes`, `read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`,
-`semantic_search` (si les embeddings sont actifs) ; `read_note` donne aussi les liens
-sortants et entrants. Outils de proposition, sans écriture, appliqués un à un par
+`search_notes` (FTS5 sur le titre et le corps ; modes `mots`, `phrase`, `ou`),
+`grep_notes` (texte exact ou regex, ligne par ligne, frontmatter compris : sert aussi à
+retrouver un passage avant `propose_note_edit`), `find_notes` (morceau du nom ou du titre,
+type, valeurs du frontmatter y compris dans les listes, sans casse ni accents),
+`read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`, `semantic_search` (si
+les embeddings sont actifs) ; `read_note` donne aussi les liens sortants et entrants. La
+recherche exacte se fait dans le code (`Index::grep`, `regex`), sans outil externe type
+ripgrep : un vault reste assez petit pour être parcouru à chaque appel. Les modèles
+(`_templates/`) sont exclus des résultats même quand leur frontmatter porte un `type`. Une
+erreur que Vibe signale dans le flux SSE avec un statut 200 (quota de tokens dépassé, par
+exemple) est remontée comme erreur, au lieu d'une réponse vide. Outils de proposition, sans écriture, appliqués un à un par
 l'utilisateur : `propose_task`, `propose_task_update` (statut, priorité, échéance, titre,
 projet, semaine), `propose_journal_line`, et pour les notes `propose_note_create`,
 `propose_note_edit` (passages cités, chacun unique dans la note), `propose_note_append`

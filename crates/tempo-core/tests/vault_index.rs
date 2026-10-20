@@ -2,7 +2,9 @@ mod common;
 
 use std::collections::{HashMap, HashSet};
 
+use regex::Regex;
 use serde_json::json;
+use tempo_core::index::SearchMode;
 use tempo_core::tasks::NewTask;
 use tempo_core::vault::{content_hash, split_frontmatter};
 use tempo_core::Error;
@@ -47,6 +49,58 @@ fn index_types_links_and_search() {
     assert!(results.iter().any(|r| r.path == "journal/2026/2026-10-16.md"));
     // recherche insensible aux accents
     assert!(!c.index.search("echanges", 30).unwrap().is_empty() || !c.index.search("reunion", 30).unwrap().is_empty());
+}
+
+#[test]
+fn search_modes() {
+    let c = common::ctx();
+    let paths = |query: &str, mode: SearchMode| -> HashSet<String> {
+        c.index.search_with(query, mode, 30).unwrap().into_iter().map(|h| h.path).collect()
+    };
+    const COPIL: &str = "reunions/2026/2026-10-15-copil-sap.md";
+    assert!(paths("recette procédure", SearchMode::Words).contains(COPIL));
+    assert!(paths("procédure de recette", SearchMode::Phrase).contains(COPIL));
+    assert!(!paths("recette procédure", SearchMode::Phrase).contains(COPIL)); // ordre des mots
+    assert!(paths("zeppelin rejets", SearchMode::Words).is_empty());
+    assert!(paths("zeppelin rejets", SearchMode::Any).contains("journal/2026/2026-10-16.md"));
+}
+
+#[test]
+fn find_notes_by_name_type_and_meta() {
+    let c = common::ctx();
+    let find = |name: Option<&str>, kind: Option<&str>, meta: &[(&str, &str)]| -> Vec<String> {
+        let meta: Vec<(String, String)> = meta.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        c.index.find_notes(name, kind, &meta).unwrap().into_iter().map(|n| n.path).collect()
+    };
+    const COPIL: &str = "reunions/2026/2026-10-15-copil-sap.md";
+    // élément d'une liste, sans tenir compte de la casse ; un lien [[x]] vaut x
+    assert_eq!(find(None, None, &[("participants", "marc leroy")]), vec![COPIL]);
+    assert_eq!(find(None, Some("reunion"), &[("tasks", "T-004"), ("projects", "SAP")]), vec![COPIL]);
+    assert!(find(None, None, &[("participants", "Marc")]).is_empty()); // valeur entière
+    // nom de fichier ou titre, sans accents
+    assert_eq!(find(Some("unités"), None, &[]), vec!["sujets/mapping-unites-de-mesure.md"]);
+    let copil = find(Some("COPIL"), None, &[]);
+    assert!(copil.contains(&COPIL.to_string()) && copil.contains(&"taches/T-002-preparer-copil-sap.md".to_string()));
+    assert!(find(Some("copil"), Some("tache"), &[]).iter().all(|p| p.starts_with("taches/")));
+    assert!(find(None, None, &[]).iter().all(|p| !p.starts_with("_templates/"))); // modèles exclus
+}
+
+#[test]
+fn grep_lines() {
+    let c = common::ctx();
+    let grep = |pattern: &str, kind: Option<&str>, folder: Option<&str>| {
+        c.index.grep(&Regex::new(pattern).unwrap(), kind, folder, 60).unwrap()
+    };
+    let hits = grep(&regex::escape("Recette maintenue au 28 octobre."), None, None);
+    assert_eq!(hits.len(), 1);
+    assert_eq!((hits[0].path.as_str(), hits[0].text.as_str()), ("reunions/2026/2026-10-15-copil-sap.md", "- Recette maintenue au 28 octobre."));
+    let text = c.vault.read_text(&hits[0].path).unwrap();
+    assert_eq!(text.lines().nth(hits[0].line - 1), Some(hits[0].text.as_str()));
+    // frontmatter compris, filtres par type et par dossier, limite
+    assert_eq!(grep("^participants:", Some("reunion"), None).len(), 1);
+    assert!(grep(r"T-00[1-4]", None, Some("reunions/")).iter().all(|h| h.path.starts_with("reunions/")));
+    assert!(grep(r"T-00[1-4]", None, Some("journal")).iter().all(|h| h.path.starts_with("journal/")));
+    assert_eq!(c.index.grep(&Regex::new("e").unwrap(), None, None, 5).unwrap().len(), 5);
 }
 
 #[test]
