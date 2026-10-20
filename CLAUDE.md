@@ -51,6 +51,8 @@ Pas de linter configuré (`cargo clippy` disponible).
   message utilisateur, pas seulement système), tool calling natif diffusé (`chat_tools`,
   utilisé par le chat), et `FakeLlm` pour les tests (`fake_tool_calls` simule des appels
   d'outils).
+- `notes.rs` : modifications ciblées d'une note (passages, sections, frontmatter, liens),
+  utilisées par les propositions du chat.
 - `de.rs` : désérialiseurs tolérants pour les réponses du modèle (équivalent des validateurs
   Pydantic : valeur invalide → valeur par défaut).
 - `prompts.rs` : prompts centralisés.

@@ -17,14 +17,15 @@ use serde_json::{json, Map, Value};
 
 use crate::config::Settings;
 use crate::error::{not_found, vault_err, Error, Result};
-use crate::index::{extract_links, Index, NoteRow};
-use crate::journal::JournalService;
+use crate::index::{extract_links, infer_type, Index, NoteRow};
+use crate::journal::{JournalService, NOTE_KINDS};
 use crate::llm::{Llm, Msg, ToolDef};
 use crate::prompts::CHAT_SYSTEM;
 use crate::semantic::SemanticIndex;
-use crate::tasks::{NewTask, TaskService, PRIORITIES, STATUSES};
+use crate::notes::{add_link, append_text, apply_edits, heading, remove_link, split_raw, update_meta, with_meta, TextEdit};
+use crate::tasks::{week_start, NewTask, TaskService, EDITABLE_FIELDS, PRIORITIES, STATUSES};
 use crate::util::{clip, iso_date, today};
-use crate::vault::{split_frontmatter, Vault};
+use crate::vault::{content_hash, split_frontmatter, Vault};
 
 pub const MAX_STEPS: usize = 8;
 const MAX_NOTE_CHARS: usize = 8000;
@@ -53,53 +54,102 @@ impl ChatMessage {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProposalKind {
-    CreateTask,
-    UpdateTask,
-    Journal,
-}
-
-/// Modification proposée par l'agent, appliquée seulement après validation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatProposal {
-    pub kind: ProposalKind,
-    #[serde(default)]
-    pub title: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default)]
-    pub project: Option<String>,
-    #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
-    pub status: Option<String>,
-    #[serde(default)]
-    pub due: Option<String>,
-    #[serde(default)]
-    pub task_id: Option<String>,
-    #[serde(default)]
-    pub note: String,
-    #[serde(default)]
-    pub line: String,
-}
-
-impl ChatProposal {
-    pub fn new(kind: ProposalKind) -> Self {
-        ChatProposal {
-            kind,
-            title: String::new(),
-            description: String::new(),
-            project: None,
-            priority: None,
-            status: None,
-            due: None,
-            task_id: None,
-            note: String::new(),
-            line: String::new(),
-        }
-    }
+/// Modification proposée par l'agent, appliquée seulement après validation : une variante
+/// par opération (`kind` en json). Les opérations sur une note sont vérifiées à la
+/// proposition, puis rejouées à la validation sur le contenu du moment. Les champs `title`
+/// des notes ne servent qu'à l'affichage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ChatProposal {
+    CreateTask {
+        title: String,
+        #[serde(default)]
+        description: String,
+        project: Option<String>,
+        priority: Option<String>,
+        status: Option<String>,
+        due: Option<String>,
+    },
+    /// `title` : titre actuel (affichage) ; `new_title` : renommage
+    UpdateTask {
+        task_id: String,
+        #[serde(default)]
+        title: String,
+        status: Option<String>,
+        priority: Option<String>,
+        due: Option<String>,
+        #[serde(default)]
+        note: String,
+        #[serde(default)]
+        new_title: Option<String>,
+        #[serde(default)]
+        project: Option<String>,
+        /// semaine où planifier la tâche (`2026-S43`)
+        #[serde(default)]
+        iteration: Option<String>,
+    },
+    /// ligne ajoutée au journal du jour
+    Journal { line: String },
+    CreateNote {
+        #[serde(rename = "type")]
+        note_type: String,
+        title: String,
+        date: Option<String>,
+        #[serde(default)]
+        content: String,
+    },
+    EditNote {
+        path: String,
+        #[serde(default)]
+        title: String,
+        edits: Vec<TextEdit>,
+    },
+    AppendNote {
+        path: String,
+        #[serde(default)]
+        title: String,
+        section: Option<String>,
+        text: String,
+    },
+    /// frontmatter : clés modifiées ou ajoutées, clés retirées ; `before` garde les valeurs
+    /// d'origine pour l'affichage
+    UpdateMeta {
+        path: String,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        set: Map<String, Value>,
+        #[serde(default)]
+        remove: Vec<String>,
+        #[serde(default)]
+        before: Map<String, Value>,
+    },
+    /// suppression (la note part dans `.trash/`) ; `backlinks` : notes qui la mentionnent
+    DeleteNote {
+        path: String,
+        #[serde(default)]
+        title: String,
+        #[serde(default)]
+        backlinks: Vec<String>,
+    },
+    /// lien `[[cible]]` ajouté à un champ du frontmatter ou à une section du corps
+    Link {
+        path: String,
+        #[serde(default)]
+        title: String,
+        link: String,
+        target_path: String,
+        field: Option<String>,
+        section: Option<String>,
+    },
+    /// liens vers la cible retirés (frontmatter et corps)
+    Unlink {
+        path: String,
+        #[serde(default)]
+        title: String,
+        link: String,
+        target_path: String,
+    },
 }
 
 fn check_date(value: Option<&str>) -> Result<Option<String>> {
@@ -117,6 +167,19 @@ fn check_choice(field: &str, value: Option<String>, allowed: &[&str]) -> Result<
             Err(vault_err(format!("{field} invalide : {v} (valeurs : {})", allowed.join(", "))))
         }
         other => Ok(other),
+    }
+}
+
+/// Chemin de la note visée par une proposition (vide pour les tâches, le journal, une création).
+fn proposal_path(proposal: &ChatProposal) -> &str {
+    match proposal {
+        ChatProposal::EditNote { path, .. }
+        | ChatProposal::AppendNote { path, .. }
+        | ChatProposal::UpdateMeta { path, .. }
+        | ChatProposal::DeleteNote { path, .. }
+        | ChatProposal::Link { path, .. }
+        | ChatProposal::Unlink { path, .. } => path,
+        _ => "",
     }
 }
 
@@ -205,12 +268,74 @@ struct ProposeUpdateArgs {
     due: Option<String>,
     #[serde(default)]
     note: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    project: Option<String>,
+    #[serde(default)]
+    iteration: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LineArgs {
     line: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoteCreateArgs {
+    #[serde(rename = "type")]
+    note_type: String,
+    title: String,
+    #[serde(default)]
+    date: Option<String>,
+    #[serde(default)]
+    content: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoteEditArgs {
+    name: String,
+    edits: Vec<TextEdit>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoteAppendArgs {
+    name: String,
+    text: String,
+    #[serde(default)]
+    section: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoteMetaArgs {
+    name: String,
+    #[serde(default)]
+    set: Map<String, Value>,
+    #[serde(default)]
+    remove: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LinkArgs {
+    name: String,
+    target: String,
+    #[serde(default)]
+    field: Option<String>,
+    #[serde(default)]
+    section: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnlinkArgs {
+    name: String,
+    target: String,
 }
 
 /// Résultat d'un outil : des données pour le modèle, ou une proposition à valider.
@@ -277,10 +402,57 @@ fn proposal_tools() -> Vec<ToolDef> {
         tool("propose_task_update", &format!("{PROPOSAL}mise à jour d'une tâche existante, tracée dans son historique."),
              object(&["task_id"], json!({
                  "task_id": text("identifiant, ex. T-001"), "status": choice(&STATUSES), "priority": choice(&PRIORITIES),
-                 "due": date("échéance"), "note": text("ce qui a changé"),
+                 "due": date("échéance"), "note": text("ce qui a changé"), "title": text("nouveau titre"),
+                 "project": text("identifiant du projet de rattachement"),
+                 "iteration": text("semaine où planifier la tâche, format AAAA-Snn (ex. 2026-S43)"),
              }))),
         tool("propose_journal_line", &format!("{PROPOSAL}ligne à ajouter au journal du jour."),
              object(&["line"], json!({"line": text("texte de la ligne")}))),
+        tool("propose_note_create", &format!("{PROPOSAL}nouvelle note, rangée selon son type."),
+             object(&["type", "title"], json!({
+                 "type": choice(&NOTE_KINDS), "title": text("titre (devient le nom du fichier)"),
+                 "date": date("date de la note, aujourd'hui par défaut"),
+                 "content": text("corps en Markdown, sous le titre (sections ##, puces, [[liens]])"),
+             }))),
+        tool("propose_note_edit",
+             &format!("{PROPOSAL}remplacement de passages du corps d'une note (ou tâche). Chaque passage cité \
+                       doit figurer exactement une fois dans la note lue avec read_note ; cite juste assez de \
+                       texte pour qu'il soit unique. Pour le frontmatter, utilise propose_note_meta."),
+             object(&["name", "edits"], json!({
+                 "name": text("lien [[…]], nom ou chemin de la note"),
+                 "edits": {"type": "array", "minItems": 1, "items": object(&["find", "replace"], json!({
+                     "find": text("passage exact à remplacer"), "replace": text("nouveau texte (vide pour supprimer)"),
+                 }))},
+             }))),
+        tool("propose_note_append",
+             &format!("{PROPOSAL}texte ajouté à la fin d'une section (créée si absente) ou de la note."),
+             object(&["name", "text"], json!({
+                 "name": text("lien [[…]], nom ou chemin de la note"), "text": text("texte Markdown à ajouter"),
+                 "section": text("titre de section, ex. « ## Décisions » (fin de la note si absent)"),
+             }))),
+        tool("propose_note_meta",
+             &format!("{PROPOSAL}modification du frontmatter clé par clé. Pour le statut, la priorité, \
+                       l'échéance, le projet ou l'itération d'une tâche, utilise propose_task_update."),
+             object(&["name"], json!({
+                 "name": text("lien [[…]], nom ou chemin de la note"),
+                 "set": {"type": "object", "description": "clés à créer ou modifier, avec leur valeur (texte, nombre, liste)"},
+                 "remove": {"type": "array", "items": {"type": "string"}, "description": "clés à retirer"},
+             }))),
+        tool("propose_note_delete", &format!("{PROPOSAL}suppression d'une note (déplacée dans la corbeille du vault)."),
+             object(&["name"], json!({"name": text("lien [[…]], nom ou chemin de la note")}))),
+        tool("propose_link",
+             &format!("{PROPOSAL}lien [[cible]] ajouté à une note : dans une liste du frontmatter (champ, ex. \
+                       tasks, participants) ou à la fin d'une section du corps (« ## Liens » par défaut)."),
+             object(&["name", "target"], json!({
+                 "name": text("note à modifier (lien, nom ou chemin)"), "target": text("note vers laquelle pointer"),
+                 "field": text("liste du frontmatter où ajouter le lien"), "section": text("section du corps"),
+             }))),
+        tool("propose_unlink",
+             &format!("{PROPOSAL}retrait des liens d'une note vers une cible (entrées du frontmatter \
+                       supprimées, liens du corps remplacés par leur texte)."),
+             object(&["name", "target"], json!({
+                 "name": text("note à modifier (lien, nom ou chemin)"), "target": text("note dont retirer les liens"),
+             }))),
     ]
 }
 
@@ -386,8 +558,9 @@ impl ChatService {
         let mut result = Self::note_ref(&note);
         result.insert("meta".into(), Value::Object(note.meta.clone()));
         result.insert("contenu".into(), clip(body.trim(), MAX_NOTE_CHARS).into());
-        let backlinks: Vec<Value> = self.index.backlinks(&path)?.iter().take(15).map(|n| Value::Object(Self::note_ref(n))).collect();
-        result.insert("mentionnee_dans".into(), Value::Array(backlinks));
+        let refs = |notes: Vec<NoteRow>| Value::Array(notes.iter().take(15).map(|n| Value::Object(Self::note_ref(n))).collect());
+        result.insert("liens".into(), refs(self.index.outlinks(&path)?));
+        result.insert("mentionnee_dans".into(), refs(self.index.backlinks(&path)?));
         Ok(Value::Object(result))
     }
 
@@ -447,75 +620,175 @@ impl ChatService {
         if args.title.trim().is_empty() {
             return Err(vault_err("Le titre de la tâche est obligatoire"));
         }
-        let mut proposal = ChatProposal::new(ProposalKind::CreateTask);
-        proposal.title = args.title.trim().to_string();
-        proposal.description = args.description.unwrap_or_default();
-        proposal.project = args.project.filter(|p| !p.is_empty());
-        proposal.priority = check_choice("priority", args.priority, &PRIORITIES)?;
-        proposal.due = check_date(args.due.as_deref())?;
-        Ok(proposal)
+        Ok(ChatProposal::CreateTask {
+            title: args.title.trim().to_string(),
+            description: args.description.unwrap_or_default(),
+            project: args.project.filter(|p| !p.is_empty()),
+            priority: check_choice("priority", args.priority, &PRIORITIES)?,
+            status: None,
+            due: check_date(args.due.as_deref())?,
+        })
     }
 
     fn propose_task_update(&self, args: ProposeUpdateArgs) -> Result<ChatProposal> {
         let task = self.tasks.get(&args.task_id)?.task;
-        let mut proposal = ChatProposal::new(ProposalKind::UpdateTask);
         // le modèle renvoie souvent les valeurs inchangées : seules les vraies modifications restent
-        proposal.status = check_choice("status", args.status, &STATUSES)?.filter(|s| *s != task.status);
-        proposal.priority = check_choice("priority", args.priority, &PRIORITIES)?.filter(|p| *p != task.priority);
-        proposal.due = check_date(args.due.as_deref())?.filter(|d| Some(d) != task.due.as_ref());
-        proposal.task_id = Some(task.id);
-        proposal.title = task.title;
-        proposal.note = args.note.unwrap_or_default().trim().to_string();
-        if proposal.status.is_none() && proposal.priority.is_none() && proposal.due.is_none() && proposal.note.is_empty() {
+        let status = check_choice("status", args.status, &STATUSES)?.filter(|s| *s != task.status);
+        let priority = check_choice("priority", args.priority, &PRIORITIES)?.filter(|p| *p != task.priority);
+        let due = check_date(args.due.as_deref())?.filter(|d| Some(d) != task.due.as_ref());
+        let note = args.note.unwrap_or_default().trim().to_string();
+        let new_title = args.title.map(|t| t.trim().to_string()).filter(|t| !t.is_empty() && *t != task.title);
+        let project = args.project.map(|p| p.trim().to_string()).filter(|p| !p.is_empty() && Some(p) != task.project.as_ref());
+        let iteration = args.iteration.map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
+        if let Some(week) = &iteration {
+            week_start(week)?;
+        }
+        if [&status, &priority, &due, &new_title, &project, &iteration].iter().all(|v| v.is_none()) && note.is_empty() {
             return Err(vault_err("Aucune modification proposée"));
         }
-        Ok(proposal)
+        Ok(ChatProposal::UpdateTask { task_id: task.id, title: task.title, status, priority, due, note, new_title, project, iteration })
     }
 
     fn propose_journal_line(&self, args: LineArgs) -> Result<ChatProposal> {
         if args.line.trim().is_empty() {
             return Err(vault_err("La ligne de journal est vide"));
         }
-        let mut proposal = ChatProposal::new(ProposalKind::Journal);
-        proposal.line = args.line.trim().to_string();
+        Ok(ChatProposal::Journal { line: args.line.trim().to_string() })
+    }
+
+    fn propose_note_create(&self, args: NoteCreateArgs) -> Result<ChatProposal> {
+        let NoteCreateArgs { note_type, title, date, content } = args;
+        check_choice("type", Some(note_type.clone()), &NOTE_KINDS)?;
+        if title.trim().is_empty() {
+            return Err(vault_err("Le titre de la note est obligatoire"));
+        }
+        let date = check_date(date.as_deref())?;
+        Ok(ChatProposal::CreateNote { note_type, title: title.trim().into(), date, content: content.unwrap_or_default() })
+    }
+
+    /// Note visée par une proposition : chemin et titre.
+    fn target(&self, name: &str) -> Result<(String, String)> {
+        let path = self.resolve(name)?;
+        let note = self.index.get(&path)?.ok_or_else(|| not_found(format!("Note introuvable : {path}")))?;
+        Ok((path, note.title))
+    }
+
+    /// Lien `[[…]]` vers une note, avec son chemin.
+    fn link_to(&self, name: &str) -> Result<(String, String)> {
+        let path = self.resolve(name)?;
+        let note = self.index.get(&path)?.ok_or_else(|| not_found(format!("Note introuvable : {path}")))?;
+        Ok((format!("[[{}]]", note.link_name()), path))
+    }
+
+    /// Vérifie qu'une opération sur une note s'applique à son contenu actuel.
+    fn checked(&self, proposal: ChatProposal) -> Result<ChatProposal> {
+        let text = self.vault.read_text(proposal_path(&proposal))?;
+        self.transform(&proposal, &text)?;
         Ok(proposal)
+    }
+
+    fn propose_note_meta(&self, args: NoteMetaArgs) -> Result<ChatProposal> {
+        let (path, title) = self.target(&args.name)?;
+        let (meta, _) = split_frontmatter(&self.vault.read_text(&path)?);
+        let before = args.set.keys().chain(&args.remove).map(|k| (k.clone(), meta.get(k).cloned().unwrap_or(Value::Null))).collect();
+        self.checked(ChatProposal::UpdateMeta { path, title, set: args.set, remove: args.remove, before })
+    }
+
+    fn propose_note_delete(&self, name: &str) -> Result<ChatProposal> {
+        let (path, title) = self.target(name)?;
+        let backlinks = self.index.backlinks(&path)?.iter().map(|n| format!("[[{}]]", n.link_name())).collect();
+        Ok(ChatProposal::DeleteNote { path, title, backlinks })
+    }
+
+    /// La cible d'un lien `[[nom]]` est-elle la note `target_path` ?
+    fn points_to(&self, name: &str, target_path: &str) -> bool {
+        name == target_path || self.index.resolve_link(name).ok().flatten().as_deref() == Some(target_path)
+    }
+
+    /// Nouveau texte d'une note après une opération (erreur si elle ne s'applique pas).
+    fn transform(&self, proposal: &ChatProposal, text: &str) -> Result<String> {
+        let (raw_meta, body) = split_raw(text);
+        match proposal {
+            ChatProposal::EditNote { edits, .. } => Ok(format!("{raw_meta}{}", apply_edits(body, edits)?)),
+            ChatProposal::AppendNote { section, text: added, .. } => {
+                Ok(format!("{raw_meta}{}", append_text(body, section.as_deref(), added)?))
+            }
+            ChatProposal::UpdateMeta { path, set, remove, .. } => {
+                let (mut meta, _) = split_frontmatter(text);
+                let is_task = infer_type(path) == "tache" || meta.get("type").and_then(Value::as_str) == Some("tache");
+                if let Some(key) = set.keys().chain(remove).find(|k| is_task && EDITABLE_FIELDS.contains(&k.as_str())) {
+                    return Err(vault_err(format!("Le champ {key} d'une tâche se modifie avec propose_task_update")));
+                }
+                update_meta(&mut meta, set, remove)?;
+                Ok(with_meta(&meta, body))
+            }
+            ChatProposal::Link { link, target_path, field, section, path, .. } => {
+                if target_path == path {
+                    return Err(vault_err("Une note ne peut pas pointer vers elle-même"));
+                }
+                add_link(text, link, field.as_deref(), section.as_deref(), |name| self.points_to(name, target_path))
+            }
+            ChatProposal::Unlink { target_path, .. } => {
+                Ok(remove_link(text, |name| self.points_to(name, target_path))?.0)
+            }
+            _ => Err(vault_err("Cette proposition ne modifie pas une note existante")),
+        }
     }
 
     /// Applique une proposition validée par l'utilisateur.
     pub fn apply(&self, proposal: &ChatProposal, today_date: Option<NaiveDate>) -> Result<Value> {
         let today_str = today_date.unwrap_or_else(today).to_string();
-        match proposal.kind {
-            ProposalKind::CreateTask => {
+        match proposal {
+            ChatProposal::CreateTask { title, description, project, priority, status, due } => {
                 let new = NewTask {
-                    title: proposal.title.clone(),
-                    project: proposal.project.clone(),
-                    priority: proposal.priority.clone().filter(|p| !p.is_empty()),
-                    status: proposal.status.clone().filter(|s| !s.is_empty()),
-                    due: proposal.due.clone(),
-                    description: proposal.description.clone(),
+                    title: title.clone(),
+                    project: project.clone(),
+                    priority: priority.clone().filter(|p| !p.is_empty()),
+                    status: status.clone().filter(|s| !s.is_empty()),
+                    due: due.clone(),
+                    description: description.clone(),
                     origin: None,
                 };
                 let task = self.tasks.create(new, Some(&today_str))?.task;
                 Ok(json!({"path": task.path, "message": format!("Tâche {} créée", task.id)}))
             }
-            ProposalKind::UpdateTask => {
-                let task_id = proposal.task_id.as_deref().filter(|t| !t.is_empty()).ok_or_else(|| vault_err("Tâche non précisée"))?;
+            ChatProposal::UpdateTask { task_id, status, priority, due, note, new_title, project, iteration, .. } => {
                 let mut changes = Map::new();
-                for (key, value) in [("status", &proposal.status), ("priority", &proposal.priority), ("due", &proposal.due)] {
+                let fields = [("status", status), ("priority", priority), ("due", due), ("title", new_title), ("project", project), ("iteration", iteration)];
+                for (key, value) in fields {
                     if let Some(value) = value.as_ref().filter(|v| !v.is_empty()) {
                         changes.insert(key.into(), value.clone().into());
                     }
                 }
-                let task = self.tasks.update(task_id, &changes, Some(&proposal.note), Some(&today_str))?.task;
+                let task = self.tasks.update(task_id, &changes, Some(note), Some(&today_str))?.task;
                 Ok(json!({"path": task.path, "message": format!("Tâche {} mise à jour", task.id)}))
             }
-            ProposalKind::Journal => {
-                let line = proposal.line.trim();
+            ChatProposal::Journal { line } => {
+                let line = line.trim();
                 if line.is_empty() {
                     return Err(vault_err("La ligne de journal est vide"));
                 }
                 let path = self.journal.append(&today_str, "## Notes", &format!("- {line}"))?;
                 Ok(json!({"path": path, "message": "Ligne ajoutée au journal"}))
+            }
+            ChatProposal::CreateNote { note_type, title, date, content } => {
+                let date = date.as_deref().unwrap_or(&today_str);
+                let path = self.journal.create_note_with_body(note_type, title, Some(date), Some(content))?;
+                Ok(json!({"path": path, "message": "Note créée"}))
+            }
+            ChatProposal::DeleteNote { path, .. } => {
+                self.vault.delete(path)?;
+                self.index.remove(path)?;
+                Ok(json!({"path": Value::Null, "message": "Note supprimée (récupérable dans .trash)"}))
+            }
+            _ => {
+                // rejouée sur le contenu actuel ; le hash protège d'une écriture concurrente
+                let path = proposal_path(proposal);
+                let current = self.vault.read_text(path)?;
+                let updated = self.transform(proposal, &current)?;
+                self.vault.write(path, &updated, Some(&content_hash(&current)), false)?;
+                self.index.upsert(path)?;
+                Ok(json!({"path": path, "message": "Note modifiée"}))
             }
         }
     }
@@ -553,6 +826,34 @@ impl ChatService {
             "propose_task" => ToolOutput::Proposal(self.propose_task(args!(ProposeTaskArgs))?),
             "propose_task_update" => ToolOutput::Proposal(self.propose_task_update(args!(ProposeUpdateArgs))?),
             "propose_journal_line" => ToolOutput::Proposal(self.propose_journal_line(args!(LineArgs))?),
+            "propose_note_create" => ToolOutput::Proposal(self.propose_note_create(args!(NoteCreateArgs))?),
+            "propose_note_edit" => {
+                let a = args!(NoteEditArgs);
+                let (path, title) = self.target(&a.name)?;
+                ToolOutput::Proposal(self.checked(ChatProposal::EditNote { path, title, edits: a.edits })?)
+            }
+            "propose_note_append" => {
+                let a = args!(NoteAppendArgs);
+                let (path, title) = self.target(&a.name)?;
+                let section = a.section.filter(|s| !s.trim().is_empty()).map(|s| heading(&s));
+                ToolOutput::Proposal(self.checked(ChatProposal::AppendNote { path, title, section, text: a.text })?)
+            }
+            "propose_note_meta" => ToolOutput::Proposal(self.propose_note_meta(args!(NoteMetaArgs))?),
+            "propose_note_delete" => ToolOutput::Proposal(self.propose_note_delete(&args!(NameArgs).name)?),
+            "propose_link" => {
+                let a = args!(LinkArgs);
+                let (path, title) = self.target(&a.name)?;
+                let (link, target_path) = self.link_to(&a.target)?;
+                let field = a.field.filter(|f| !f.trim().is_empty());
+                let section = a.section.filter(|s| !s.trim().is_empty()).map(|s| heading(&s));
+                ToolOutput::Proposal(self.checked(ChatProposal::Link { path, title, link, target_path, field, section })?)
+            }
+            "propose_unlink" => {
+                let a = args!(UnlinkArgs);
+                let (path, title) = self.target(&a.name)?;
+                let (link, target_path) = self.link_to(&a.target)?;
+                ToolOutput::Proposal(self.checked(ChatProposal::Unlink { path, title, link, target_path })?)
+            }
             _ => {
                 return Ok(Err(format!("Erreur : outil inconnu « {name} ». Outils : {}.", self.tool_names().join(", "))));
             }

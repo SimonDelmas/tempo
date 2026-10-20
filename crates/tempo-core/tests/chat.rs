@@ -5,7 +5,7 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use common::{Ctx, TestApp};
 use serde_json::{json, Map, Value};
-use tempo_core::chat::{ChatMessage, ChatProposal, ChatService, ProposalKind, MAX_STEPS};
+use tempo_core::chat::{ChatMessage, ChatProposal, ChatService, MAX_STEPS};
 use tempo_core::error::Result;
 use tempo_core::llm::{fake_tool_calls, FakeLlm, Llm, Msg, ToolCall, ToolDef, ToolTurn};
 
@@ -41,6 +41,7 @@ fn tools_read_vault() {
     assert!(hits.as_array().unwrap().iter().any(|h| h["lien"] == "[[T-004]]"));
     let note = chat.read_note("[[2026-10-15-copil-sap]]").unwrap();
     assert!(note["type"] == "reunion" && note["contenu"].as_str().unwrap().contains("Décisions"));
+    assert!(note["liens"].as_array().unwrap().iter().any(|n| n["lien"] == "[[T-001]]"));
     assert_eq!(chat.read_note("reunions/2026/2026-10-15-copil-sap.md").unwrap()["titre"], note["titre"]);
     let en_cours = chat.list_tasks(Some("en_cours"), None).unwrap();
     let ids: Vec<&str> = en_cours.as_array().unwrap().iter().map(|t| t["id"].as_str().unwrap()).collect();
@@ -153,29 +154,143 @@ fn proposals_are_validated_and_returned() {
 fn apply_proposals() {
     let c = common::ctx();
     let chat = make_chat(&c, FakeLlm::new(Vec::<String>::new()));
-    let mut create = ChatProposal::new(ProposalKind::CreateTask);
-    create.title = "Préparer la recette".into();
-    create.project = Some("sap".into());
-    create.due = Some("2026-10-27".into());
+    let create: ChatProposal = serde_json::from_value(
+        json!({"kind": "create_task", "title": "Préparer la recette", "project": "sap", "due": "2026-10-27"}),
+    )
+    .unwrap();
     let created = chat.apply(&create, day()).unwrap();
     let id = created["message"].as_str().unwrap().split_whitespace().nth(1).unwrap().to_string();
     let task = c.tasks.get(&id).unwrap().task;
     assert_eq!((task.project.as_deref(), task.due.as_deref()), (Some("sap"), Some("2026-10-27")));
 
-    let mut update = ChatProposal::new(ProposalKind::UpdateTask);
-    update.task_id = Some("T-003".into());
-    update.status = Some("en_cours".into());
-    update.note = "accès obtenus".into();
+    let update: ChatProposal = serde_json::from_value(json!({
+        "kind": "update_task", "task_id": "T-003", "status": "en_cours", "note": "accès obtenus",
+        "new_title": "Obtenir les accès production", "iteration": "2026-S44",
+    }))
+    .unwrap();
     chat.apply(&update, day()).unwrap();
     let t3 = c.tasks.get("T-003").unwrap();
-    assert_eq!(t3.task.status, "en_cours");
-    assert!(t3.content.contains("accès obtenus"));
+    assert_eq!((t3.task.status.as_str(), t3.task.title.as_str()), ("en_cours", "Obtenir les accès production"));
+    assert!(t3.content.contains("accès obtenus") && t3.content.contains("2026-S44"));
 
-    let mut journal = ChatProposal::new(ProposalKind::Journal);
-    journal.line = "Point recette".into();
+    let journal = ChatProposal::Journal { line: "Point recette".into() };
     let path = chat.apply(&journal, day()).unwrap()["path"].as_str().unwrap().to_string();
     assert_eq!(path, "journal/2026/2026-10-19.md");
     assert!(c.vault.read_text(&path).unwrap().contains("- Point recette"));
+}
+
+#[test]
+fn proposals_stored_by_the_previous_version_still_apply() {
+    // ancien format à plat, conservé dans les conversations du navigateur
+    let old = json!({"kind": "journal", "title": "", "description": "", "project": null, "priority": null,
+                     "status": null, "due": null, "task_id": null, "note": "", "line": "Ancienne proposition"});
+    assert_eq!(serde_json::from_value::<ChatProposal>(old).unwrap(), ChatProposal::Journal { line: "Ancienne proposition".into() });
+}
+
+const COPIL: &str = "reunions/2026/2026-10-15-copil-sap.md";
+
+/// Propositions de l'agent pour une suite d'appels d'outils (un par tour).
+fn propose(c: &Ctx, calls: Vec<(&str, Value)>) -> Value {
+    let mut responses: Vec<String> = calls.into_iter().map(|(name, a)| tool(name, a)).collect();
+    responses.push(answer("Voilà."));
+    let chat = make_chat(c, FakeLlm::new(responses));
+    let files = c.vault.list_files();
+    let copil = c.vault.read_text(COPIL).unwrap();
+    let result = ask(&chat, "?");
+    assert_eq!((c.vault.list_files(), c.vault.read_text(COPIL).unwrap()), (files, copil)); // rien n'est écrit
+    result
+}
+
+#[test]
+fn note_proposals_are_checked_then_applied() {
+    let c = common::ctx();
+    let result = propose(&c, vec![
+        ("propose_note_edit", json!({"name": "[[2026-10-15-copil-sap]]", "edits": [
+            {"find": "Recette maintenue au 28 octobre.", "replace": "Recette décalée au 4 novembre."}]})),
+        ("propose_note_append", json!({"name": COPIL, "section": "Décisions", "text": "- Go pour la reprise."})),
+        ("propose_note_meta", json!({"name": "2026-10-15-copil-sap", "set": {"participants": ["Claire Martin"], "statut": "valide"}})),
+        ("propose_link", json!({"name": "2026-10-15-copil-sap", "target": "mapping-unites-de-mesure"})),
+        ("propose_link", json!({"name": "2026-10-15-copil-sap", "target": "T-003", "field": "tasks"})),
+        ("propose_unlink", json!({"name": "2026-10-15-copil-sap", "target": "T-004"})),
+    ]);
+    let steps = result["steps"].as_array().unwrap();
+    assert!(steps.iter().all(|s| s["summary"].is_null()), "{steps:?}");
+    let proposals = result["proposals"].as_array().unwrap();
+    let kinds: Vec<&str> = proposals.iter().map(|p| p["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, vec!["edit_note", "append_note", "update_meta", "link", "link", "unlink"]);
+    assert!(proposals.iter().all(|p| p["path"] == COPIL));
+    assert_eq!(proposals[1]["section"], "## Décisions");
+    assert_eq!(proposals[2]["before"], json!({"participants": ["Claire Martin", "Marc Leroy", "Julie Bernard"], "statut": null}));
+    assert_eq!(proposals[3]["link"], "[[mapping-unites-de-mesure]]");
+
+    // validées l'une après l'autre sur la même note : chacune est rejouée sur le contenu du moment
+    let chat = make_chat(&c, FakeLlm::new(Vec::<String>::new()));
+    for proposal in proposals {
+        let proposal: ChatProposal = serde_json::from_value(proposal.clone()).unwrap();
+        assert_eq!(chat.apply(&proposal, day()).unwrap()["path"], COPIL);
+    }
+    let text = c.vault.read_text(COPIL).unwrap();
+    assert!(text.contains("participants: [Claire Martin]\ntasks: ['[[T-001]]', '[[T-002]]', '[[T-003]]']\nstatut: valide\n---"));
+    assert!(text.contains("- Recette décalée au 4 novembre.\n"));
+    assert!(text.contains("- Go pour la reprise.\n\n## Actions"));
+    assert!(text.contains("procédure de recette (T-004)") && !text.contains("[[T-004]]"));
+    assert!(text.trim_end().ends_with("## Liens\n- [[mapping-unites-de-mesure]]"));
+    let backlinks = c.index.backlinks("sujets/mapping-unites-de-mesure.md").unwrap();
+    assert!(backlinks.iter().any(|n| n.path == COPIL)); // index à jour
+}
+
+#[test]
+fn note_proposals_errors_are_returned_to_the_model() {
+    let c = common::ctx();
+    let result = propose(&c, vec![
+        ("propose_note_edit", json!({"name": COPIL, "edits": [{"find": "texte absent", "replace": "x"}]})),
+        ("propose_note_edit", json!({"name": COPIL, "edits": [{"find": "## ", "replace": "x"}]})),
+        ("propose_note_meta", json!({"name": "T-003", "set": {"status": "terminee"}})),
+        ("propose_link", json!({"name": COPIL, "target": "T-001", "field": "tasks"})),
+        ("propose_link", json!({"name": COPIL, "target": "note-inexistante"})),
+        ("propose_unlink", json!({"name": COPIL, "target": "mapping-unites-de-mesure"})),
+        ("propose_note_create", json!({"type": "journal", "title": "x"})),
+    ]);
+    let summaries: Vec<&str> = result["steps"].as_array().unwrap().iter().map(|s| s["summary"].as_str().unwrap()).collect();
+    assert!(summaries[0].contains("introuvable"));
+    assert!(summaries[1].contains("cite un passage plus long"));
+    assert!(summaries[2].contains("propose_task_update"));
+    assert!(summaries[3].contains("contient déjà ce lien"));
+    assert!(summaries[4].contains("Aucune note"));
+    assert!(summaries[5].contains("aucun lien"));
+    assert!(summaries[6].contains("type invalide"));
+    assert!(result["proposals"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn create_and_delete_notes() {
+    let c = common::ctx();
+    let result = propose(&c, vec![
+        ("propose_note_create", json!({"type": "personne", "title": "Marc Leroy", "content": "Fournit les jeux de test ([[2026-10-15-copil-sap]])."})),
+        ("propose_note_delete", json!({"name": "mapping-unites-de-mesure"})),
+    ]);
+    let proposals = result["proposals"].as_array().unwrap();
+    assert_eq!(proposals[1]["backlinks"], json!([]));
+    let chat = make_chat(&c, FakeLlm::new(Vec::<String>::new()));
+    let create: ChatProposal = serde_json::from_value(proposals[0].clone()).unwrap();
+    let path = chat.apply(&create, day()).unwrap()["path"].as_str().unwrap().to_string();
+    assert_eq!(path, "personnes/Marc Leroy.md");
+    let text = c.vault.read_text(&path).unwrap();
+    assert!(text.contains("type: personne") && text.contains("# Marc Leroy") && text.contains("Fournit les jeux de test"));
+    assert!(c.index.backlinks(COPIL).unwrap().iter().any(|n| n.path == path));
+
+    let delete: ChatProposal = serde_json::from_value(proposals[1].clone()).unwrap();
+    chat.apply(&delete, day()).unwrap();
+    assert!(!c.vault.exists("sujets/mapping-unites-de-mesure.md"));
+    assert!(c.index.get("sujets/mapping-unites-de-mesure.md").unwrap().is_none());
+}
+
+#[test]
+fn delete_lists_backlinks() {
+    let c = common::ctx();
+    let result = propose(&c, vec![("propose_note_delete", json!({"name": "T-004"}))]);
+    let backlinks = result["proposals"][0]["backlinks"].as_array().unwrap();
+    assert!(backlinks.contains(&json!("[[2026-10-15-copil-sap]]")));
 }
 
 #[test]

@@ -16,6 +16,7 @@ pub mod inbox;
 pub mod index;
 pub mod journal;
 pub mod llm;
+pub mod notes;
 pub mod prompts;
 pub mod reports;
 pub mod semantic;

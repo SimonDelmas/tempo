@@ -380,6 +380,16 @@ input.full { width: 100%; }
 .proposal-item.applied { border-style: solid; border-color: var(--border); }
 .proposal-item.ignored { opacity: .55; border-color: var(--border); }
 .proposal-title { font-weight: 600; }
+.proposal-diff {
+  margin-top: 6px; padding: 4px 0; border-radius: 6px; border: 1px solid var(--border); background: var(--panel);
+  font: 12px/1.5 var(--mono); overflow-x: auto;
+}
+.proposal-diff .diff-line { white-space: pre-wrap; word-break: break-word; padding: 0 8px; }
+.proposal-diff .diff-sign { display: inline-block; width: 1.4em; color: var(--muted); user-select: none; }
+.proposal-diff .removed { background: color-mix(in srgb, var(--danger) 12%, transparent); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--danger) 50%, transparent); }
+.proposal-diff .added { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.proposal-diff .gap { color: var(--muted); }
+.proposal-diff > button { margin: 2px 8px; }
 
 /* --- actions IA de l'éditeur ------------------------------------------- */
 .menu-host { position: relative; }

@@ -117,6 +117,10 @@ Règles :
   jour, ou si elle découle directement de sa demande ; vérifie d'abord l'existant (une tâche
   similaire existe-t-elle déjà ?). Dans ta réponse, résume les propositions faites : elles
   s'afficheront sous ta réponse avec un bouton de validation.
+- Pour modifier une note, lis-la d'abord avec read_note, puis choisis l'outil le plus ciblé :
+  propose_link / propose_unlink pour les liens, propose_note_meta pour le frontmatter,
+  propose_note_append pour ajouter du texte, propose_note_edit seulement pour changer un
+  passage existant. Pour une tâche, préfère propose_task_update.
 - Réponse en français, concise, en Markdown simple (paragraphes, listes à puces, **gras**).
 "#;
 

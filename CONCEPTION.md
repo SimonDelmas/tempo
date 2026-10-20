@@ -39,6 +39,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
    drafts.rs   brouillons (.brouillons/, hors index) → proposition de note et de tâches
    chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
+   notes.rs    modifications ciblées d'une note (passages, sections, frontmatter, liens)
    llm.rs      client OpenAI-compatible (Vibe, ureq), mode JSON, tool calling, FakeLlm pour les tests
    de.rs       désérialisation tolérante des réponses du modèle (valeurs par défaut)
    prompts.rs  prompts système (inbox, rapports, imputations, éditeur, chat)
@@ -252,9 +253,22 @@ le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour
 `tool_choice: none` le force à répondre. Chaque outil est décrit par un schéma JSON dont les
 `enum` reprennent `STATUSES`, `PRIORITIES` et les types de notes. Outils de consultation :
 `search_notes`, `read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`,
-`semantic_search` (si les embeddings sont actifs). Outils de proposition, sans écriture :
-`propose_task`, `propose_task_update`, `propose_journal_line`, appliqués un à un par
-l'utilisateur. Le texte du modèle est diffusé en SSE (`delta`) ; s'il précède des appels
+`semantic_search` (si les embeddings sont actifs) ; `read_note` donne aussi les liens
+sortants et entrants. Outils de proposition, sans écriture, appliqués un à un par
+l'utilisateur : `propose_task`, `propose_task_update` (statut, priorité, échéance, titre,
+projet, semaine), `propose_journal_line`, et pour les notes `propose_note_create`,
+`propose_note_edit` (passages cités, chacun unique dans la note), `propose_note_append`
+(fin d'une section), `propose_note_meta` (frontmatter clé par clé ; refusé pour les champs
+d'une tâche, qui passent par `propose_task_update` et son historique),
+`propose_note_delete` (corbeille), `propose_link` (liste du frontmatter ou section
+`## Liens`) et `propose_unlink` (entrées du frontmatter retirées, liens du corps remplacés
+par leur texte). Les propositions sont une enum `ChatProposal` (`kind` en JSON, une variante
+par opération ; l'ancien format à plat des conversations conservées reste lisible). Une
+opération sur une note est vérifiée à la proposition puis rejouée à la validation sur le
+contenu du moment (`notes.rs`), si bien que plusieurs propositions sur la même note se
+valident dans n'importe quel ordre ; le hash ne protège que l'écriture elle-même. Le
+frontmatter n'est réécrit que s'il change. Les cartes de proposition affichent un aperçu
+avant / après. Le texte du modèle est diffusé en SSE (`delta`) ; s'il précède des appels
 d'outils, un événement `reset` l'efface. Les conversations sont conservées côté navigateur
 (texte seulement : les appels d'outils des tours précédents ne sont pas renvoyés au
 modèle). Côté interface, conversations et réponses en
@@ -286,7 +300,8 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Chat : réponses poursuivies en arrière-plan, notification et non-lus à la fin d'une réponse hors de vue
 - [x] Chat : tool calling natif (schémas JSON des outils, appels parallèles) à la place du mode json
-- [ ] Chat : propositions typées (une variante par opération) et outils couvrant toutes les actions de l'application (notes, liens, inbox, imputations, rapports, backlog)
+- [x] Chat : propositions typées (une variante par opération), outils de modification des notes et des liens, aperçu avant / après
+- [ ] Chat : outils pour le reste de l'application (inbox, imputations et comptes, rapports, backlog et projets, brouillons)
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)

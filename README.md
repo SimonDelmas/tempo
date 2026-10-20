@@ -65,9 +65,13 @@ http://localhost:5173.
   `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`).
 - **Chat** : questions en langage naturel sur les notes et les tâches. L'agent consulte le
   vault (recherche, lecture de notes, liste et historique des tâches), cite ses sources en
-  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer une
-  tâche, de mettre à jour une tâche ou d'ajouter une ligne au journal : rien n'est écrit avant
-  « Appliquer ». Les conversations sont conservées dans l'application (stockage local du navigateur intégré).
+  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer ou
+  mettre à jour une tâche (statut, titre, projet, semaine), d'ajouter une ligne au journal, de
+  créer, modifier (passages, ajout dans une section, propriétés du frontmatter) ou supprimer
+  une note, et d'ajouter ou retirer des liens entre notes. Chaque proposition s'affiche avec un
+  aperçu avant / après ; rien n'est écrit avant « Appliquer », et une proposition validée
+  s'applique au contenu du moment (plusieurs propositions sur la même note se valident l'une
+  après l'autre). Les conversations sont conservées dans l'application (stockage local du navigateur intégré).
   Une réponse continue en arrière-plan quand on change d'espace ou de conversation (point animé
   sur l'icône Chat) ; si elle se termine hors de la conversation, une notification cliquable
   l'annonce et la conversation est marquée non lue (pastille dans la liste, compteur sur Chat).

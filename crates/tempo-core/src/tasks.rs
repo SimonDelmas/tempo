@@ -22,7 +22,7 @@ use crate::vault::{
 pub const STATUSES: [&str; 5] = ["a_faire", "en_cours", "attente", "bloquee", "terminee"];
 pub const PRIORITIES: [&str; 3] = ["basse", "normale", "haute"];
 pub const HISTORY_HEADING: &str = "## Historique";
-const EDITABLE_FIELDS: [&str; 6] = ["title", "status", "priority", "project", "due", "iteration"];
+pub const EDITABLE_FIELDS: [&str; 6] = ["title", "status", "priority", "project", "due", "iteration"];
 const FOLDER: &str = "taches";
 /// écart entre deux rangs consécutifs lors d'une renumérotation
 const RANK_STEP: i64 = 1000;

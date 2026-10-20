@@ -242,7 +242,7 @@ export const api = {
   transformText: (action: TextAction, text: string) =>
     request<{ text: string }>("POST", "/api/assist/text", { action, text }),
   chatApply: (proposal: ChatProposal) =>
-    request<{ path: string; message: string }>("POST", "/api/chat/apply", proposal),
+    request<{ path: string | null; message: string }>("POST", "/api/chat/apply", proposal),
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -289,19 +289,24 @@ export function toEmailText(markdown: string): string {
     .trim();
 }
 
-export type ChatStep = { tool: string; args: Record<string, unknown>; summary: string | null };
-export type ChatProposal = {
-  kind: "create_task" | "update_task" | "journal";
-  title: string;
-  description: string;
-  project: string | null;
-  priority: string | null;
-  status: string | null;
-  due: string | null;
-  task_id: string | null;
-  note: string;
-  line: string;
-};
+/** `args` est le texte brut quand le modèle a produit des arguments illisibles */
+export type ChatStep = { tool: string; args: Record<string, unknown> | string; summary: string | null };
+/** Modification proposée par l'agent (une variante par opération) ; `title` désigne la note visée. */
+export type ChatProposal =
+  | { kind: "create_task"; title: string; description: string; project: string | null; priority: string | null;
+      status: string | null; due: string | null }
+  | { kind: "update_task"; task_id: string; title: string; status: string | null; priority: string | null;
+      due: string | null; note: string; new_title?: string | null; project?: string | null; iteration?: string | null }
+  | { kind: "journal"; line: string }
+  | { kind: "create_note"; type: string; title: string; date: string | null; content: string }
+  | { kind: "edit_note"; path: string; title: string; edits: { find: string; replace: string }[] }
+  | { kind: "append_note"; path: string; title: string; section: string | null; text: string }
+  | { kind: "update_meta"; path: string; title: string; set: Record<string, unknown>; remove: string[];
+      before: Record<string, unknown> }
+  | { kind: "delete_note"; path: string; title: string; backlinks: string[] }
+  | { kind: "link"; path: string; title: string; link: string; target_path: string; field: string | null;
+      section: string | null }
+  | { kind: "unlink"; path: string; title: string; link: string; target_path: string };
 export type ChatReply = {
   answer: string;
   steps: ChatStep[];
