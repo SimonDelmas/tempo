@@ -53,9 +53,9 @@ fn sync_is_incremental() {
     let calls = Arc::new(Mutex::new(0usize));
     let embed = hashing_embedder(256);
     let counter = calls.clone();
-    let counting: Embedder = Arc::new(move |texts: &[String]| {
+    let counting: Embedder = Arc::new(move |texts: &[String], kind: tempo_core::semantic::EmbedKind| {
         *counter.lock().unwrap() += texts.len();
-        embed(texts)
+        embed(texts, kind)
     });
     let semantic = make(&c, Some(counting), "test");
     let total = semantic.sync();
@@ -104,7 +104,7 @@ fn model_change_resets_vectors() {
 #[test]
 fn embedding_errors_are_reported() {
     let c = common::ctx();
-    let failing: Embedder = Arc::new(|_: &[String]| Err(Error::Llm("API indisponible".into())));
+    let failing: Embedder = Arc::new(|_: &[String], _| Err(Error::Llm("API indisponible".into())));
     let semantic = make(&c, Some(failing), "test");
     assert_eq!(semantic.sync(), 0);
     assert_eq!(semantic.status().unwrap()["error"], "API indisponible");

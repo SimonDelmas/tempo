@@ -33,6 +33,13 @@ pub struct Settings {
     pub embed_model: Option<String>,
     pub embed_base_url: Option<String>,
     pub embed_api_key: Option<String>,
+    /// embeddings locaux (modèle livré avec l'application) quand aucune API d'embeddings n'est
+    /// configurée ; `TEMPO_EMBED_LOCAL=off` les désactive
+    pub embed_local: bool,
+    pub embed_local_dir: Option<PathBuf>,
+    pub onnxruntime: Option<PathBuf>,
+    /// similarité minimale d'un passage proche par le sens (sinon la valeur propre au modèle)
+    pub embed_min_similarity: Option<f32>,
     /// dossier de la bibliothèque de documents (`<vault>/bibliotheque` par défaut)
     pub library: PathBuf,
     /// cache de la bibliothèque (index SQLite), rangé hors du vault synchronisé
@@ -61,6 +68,10 @@ impl Settings {
             pandoc: None,
             pdfium: None,
             model_classify: "gpt-luna".into(),
+            embed_local: false,
+            embed_local_dir: None,
+            onnxruntime: None,
+            embed_min_similarity: None,
             vault,
             llm_base_url: None,
             llm_api_key: None,
@@ -183,6 +194,10 @@ pub fn load_settings() -> Settings {
         pandoc: var("TEMPO_PANDOC").map(PathBuf::from),
         pdfium: var("TEMPO_PDFIUM").map(PathBuf::from),
         model_classify: var("TEMPO_MODEL_CLASSIFY").unwrap_or_else(|| model_fast.clone()),
+        embed_local: !var("TEMPO_EMBED_LOCAL").is_some_and(|v| ["0", "off", "false", "non"].contains(&v.trim().to_lowercase().as_str())),
+        embed_local_dir: var("TEMPO_EMBED_LOCAL_DIR").map(PathBuf::from),
+        onnxruntime: var("TEMPO_ONNXRUNTIME").map(PathBuf::from),
+        embed_min_similarity: var("TEMPO_EMBED_MIN_SIMILARITY").and_then(|v| v.trim().replace(',', ".").parse().ok()),
         vault,
         llm_ca_bundle: var("VIBE_CA_BUNDLE"),
         model_fast,

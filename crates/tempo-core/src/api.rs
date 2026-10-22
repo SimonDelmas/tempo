@@ -340,6 +340,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         // bibliothèque de documents
         .route("/api/library", get(library_list))
         .route("/api/library/queue", get(library_queue))
+        .route("/api/library/status", get(library_status))
         .route(
             "/api/library/upload",
             post(library_upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 1024 * 1024)),
@@ -423,6 +424,7 @@ async fn get_config(State(s): State<AppState>) -> ApiResult {
             "dir": s.library.root.to_string_lossy(), "formats": crate::convert::FORMATS,
             "max_upload": MAX_UPLOAD_BYTES, "pandoc": s.library.tools().pandoc.is_some(),
             "pdfium": s.library.tools().pdfium.is_some(),
+            "semantic": s.library.semantic_enabled(),
         },
     })))
 }
@@ -732,6 +734,11 @@ async fn apply_draft(State(s): State<AppState>, Path(id): Path<String>, JsonBody
 
 async fn library_list(State(s): State<AppState>, Query(filter): Query<LibraryFilter>) -> ApiResult {
     blocking(move || s.library.list(&filter)).await
+}
+
+/// Avancement de la recherche par le sens (passages vectorisés).
+async fn library_status(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.library.vector_status()).await
 }
 
 async fn library_queue(State(s): State<AppState>) -> ApiResult {

@@ -12,7 +12,9 @@ use crate::imputations::ImputationService;
 use crate::inbox::InboxService;
 use crate::index::Index;
 use crate::journal::JournalService;
+use crate::embed_local::{local_embedder, LocalModel, MODEL_NAME};
 use crate::library::LibraryService;
+use crate::library_vectors::VectorConfig;
 use crate::llm::Llm;
 use crate::reports::ReportService;
 use crate::semantic::{openai_embedder, Embedder, SemanticIndex};
@@ -44,25 +46,36 @@ impl Services {
         let vault = Arc::new(Vault::with_excluded(&settings.vault, std::slice::from_ref(&settings.library))?);
         let tempo_dir = vault.root.join(".tempo");
         let index = Arc::new(Index::new(vault.clone(), &tempo_dir.join("index.db"))?);
-        let embedder = match embedder {
-            Some(e) => Some(e),
-            None if settings.embed_enabled() => Some(openai_embedder(&settings)?),
+        // embeddings : ceux fournis (tests), sinon l'API configurée, sinon le modèle local livré
+        // avec l'application ; le seuil de similarité dépend du modèle (e5 note tout haut)
+        let embedding: Option<(Embedder, String, f32)> = match embedder {
+            Some(e) => Some((e, settings.embed_model.clone().unwrap_or_else(|| "test".into()), 0.05)),
+            None if settings.embed_enabled() => {
+                Some((openai_embedder(&settings)?, settings.embed_model.clone().unwrap_or_default(), 0.5))
+            }
+            None if settings.embed_local => LocalModel::discover(settings.embed_local_dir.as_deref(), settings.onnxruntime.as_deref())
+                .map(|model| (local_embedder(model), format!("local:{MODEL_NAME}"), 0.83)),
             None => None,
         };
         let semantic = Arc::new(SemanticIndex::new(
             vault.clone(),
             index.clone(),
-            embedder,
+            embedding.as_ref().map(|(e, _, _)| e.clone()),
             &tempo_dir.join("vectors.db"),
-            settings.embed_model.as_deref(),
+            embedding.as_ref().map(|(_, model, _)| model.as_str()),
         )?);
+        let vectors = embedding.map(|(embedder, model, min_similarity)| VectorConfig {
+            embedder,
+            model,
+            min_similarity: settings.embed_min_similarity.unwrap_or(min_similarity),
+        });
         let tasks = Arc::new(TaskService::new(vault.clone(), index.clone()));
         let journal = Arc::new(JournalService::new(vault.clone(), index.clone()));
         let reports = Arc::new(ReportService::new(vault.clone(), index.clone(), tasks.clone(), llm.clone(), settings.clone()));
         let inbox = Arc::new(InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
         let drafts = Arc::new(DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
         let imputations = Arc::new(ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm.clone(), settings.clone()));
-        let library = Arc::new(LibraryService::new(settings.clone(), vault.clone(), index.clone(), llm.clone())?);
+        let library = Arc::new(LibraryService::new(settings.clone(), vault.clone(), index.clone(), llm.clone(), vectors)?);
         let deps = ChatDeps {
             vault: vault.clone(),
             index: index.clone(),

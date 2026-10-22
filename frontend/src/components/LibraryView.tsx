@@ -1,5 +1,5 @@
 import { DragEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Config, FORMAT_LABELS, library, LibraryHit, Project, Theme } from "../api";
+import { Config, FORMAT_LABELS, library, LibraryHit, Project, Theme, VectorStatus } from "../api";
 import DocumentView, { LibraryNav } from "./DocumentView";
 import LibraryQueue from "./LibraryQueue";
 import { projectTitle, useProjects } from "./ProjectSelect";
@@ -155,7 +155,17 @@ function LibraryList({ revision, params, onNavigate, onPickFiles }: {
               mails, Markdown…) ou utilisez « Ajouter des fichiers… ».</p>}
         </div>
       ) : query.trim() ? (
-        <ul className="doc-list">{hits.map((h) => row(h, h.id))}</ul>
+        <>
+          <ul className="doc-list">{hits.filter((h) => !h.semantic).map((h) => row(h, h.id))}</ul>
+          {hits.some((h) => h.semantic) && (
+            <section className="doc-group">
+              <h4 title="Documents qui ne contiennent pas les mots cherchés mais en sont proches par le sens">
+                Proches par le sens <span className="count">{hits.filter((h) => h.semantic).length}</span>
+              </h4>
+              <ul className="doc-list semantic">{hits.filter((h) => h.semantic).map((h) => row(h, h.id))}</ul>
+            </section>
+          )}
+        </>
       ) : (
         groups.map((g) => (
           <section key={g.key} className="doc-group">
@@ -240,9 +250,20 @@ export function LibrarySidebar({ revision, params, pending, onNavigate }: {
   onNavigate: LibraryNav;
 }) {
   const [docs, setDocs] = useState<LibraryHit[]>([]);
+  const [vectors, setVectors] = useState<VectorStatus | null>(null);
   const [themes] = useThemes(revision);
   const [projects] = useProjects(revision);
   useEffect(() => { library.list().then(setDocs).catch(() => {}); }, [revision]);
+  // avancement de la vectorisation, relu tant qu'elle n'est pas terminée
+  useEffect(() => {
+    let handle = 0;
+    const load = () => library.status().then((s) => {
+      setVectors(s);
+      if (s.enabled && s.embedded < s.total && !s.error) handle = window.setTimeout(load, 5000);
+    }).catch(() => {});
+    load();
+    return () => window.clearTimeout(handle);
+  }, [revision]);
 
   const count = (key: "themes" | "projects", id: string) =>
     docs.filter((d) => (id === "-" ? d[key].length === 0 : d[key].includes(id))).length;
@@ -271,6 +292,14 @@ export function LibrarySidebar({ revision, params, pending, onNavigate }: {
       {usedProjects.length === 0 && <p className="muted small">Aucun document rattaché</p>}
       {usedProjects.map((p) => item(p.title, home && params.projet === p.id, count("projects", p.id),
         () => select({ projet: params.projet === p.id ? null : p.id, par: params.par }), p.id))}
+      {vectors?.enabled && (
+        <p className="muted small sidebar-note" title={vectors.model ?? ""}>
+          {vectors.error ? `Recherche par le sens indisponible : ${vectors.error}`
+            : vectors.embedded < vectors.total
+              ? `Recherche par le sens : ${vectors.embedded} / ${vectors.total} passages analysés…`
+              : `Recherche par le sens active (${vectors.total} passages)`}
+        </p>
+      )}
     </aside>
   );
 }

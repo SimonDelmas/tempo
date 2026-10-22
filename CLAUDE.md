@@ -57,6 +57,9 @@ Pas de linter configuré (`cargo clippy` disponible).
   exclu de l'index des notes, index `library.db` rangé hors du vault, file « À classer », thèmes
   `themes/`) ; `convert/` : conversion en Markdown (pandoc, pdfium, pptx, calamine, mails, .doc/.ppt).
   Les tests de conversion pandoc / PDF sont sautés si les outils sont absents.
+  `library_vectors.rs` : vecteurs des passages et recherche hybride (RRF) ; `embed_local.rs` :
+  embeddings locaux (multilingual-e5-small, ONNX Runtime via `ort` figé en 2.0.0-rc.13 — la rc.15
+  exige Rust 1.92 —, modèle chargé à la demande). Le test du modèle local est sauté s'il est absent.
   `library_agent.rs` : outils de l'agent sur la bibliothèque (`search_documents`, `read_document`,
   `list_documents`) et vérification des citations `[[document#section]]` / `[[document#p. N]]`.
 - `notes.rs` : modifications ciblées d'une note (passages, sections, frontmatter, liens),
@@ -68,7 +71,8 @@ Pas de linter configuré (`cargo clippy` disponible).
 - `config.rs` : `Settings` chargé depuis l'environnement et les `.env` (`TEMPO_VAULT`,
   `VIBE_*`, `TEMPO_MODEL_FAST`, `TEMPO_MODEL_SMART`, `TEMPO_EMBED_*`). Sans `VIBE_*`, les
   fonctions IA renvoient `LlmNotConfigured` mais le reste fonctionne ; sans
-  `TEMPO_EMBED_MODEL`, la recherche sémantique est désactivée.
+  `TEMPO_EMBED_MODEL`, la recherche sémantique utilise le modèle local s'il est présent
+  (`Settings::for_vault` le désactive : les tests passent `hashing_embedder` à `TestApp`).
 
 ## Application de bureau (`src-tauri/`)
 

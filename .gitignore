@@ -9,3 +9,4 @@ target/
 # outils de conversion téléchargés par scripts/telecharger-outils.ps1
 src-tauri/resources/*.exe
 src-tauri/resources/*.dll
+src-tauri/resources/models/

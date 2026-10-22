@@ -96,7 +96,11 @@ http://localhost:5173.
   Une réponse continue en arrière-plan quand on change de conversation ou réduit le panneau (point animé
   sur le panneau réduit) ; si elle se termine hors de vue, une notification cliquable
   l'annonce et la conversation est marquée non lue (pastille dans la liste, compteur sur le panneau réduit).
-- **Recherche sémantique** (si `TEMPO_EMBED_MODEL` est renseigné) : bouton ≈ à côté de la
+- **Recherche sémantique** (modèle local multilingual-e5-small livré avec l'application, ou
+  l'API désignée par `TEMPO_EMBED_MODEL` ; le modèle local n'est chargé qu'à l'usage et libéré
+  après 5 minutes d'inactivité, `TEMPO_EMBED_LOCAL=off` le désactive) : dans la bibliothèque, la
+  recherche combine les mots et le sens (documents « proches par le sens » listés à part, passages
+  marqués pour l'agent) ; pour les notes, bouton ≈ à côté de la
   recherche des notes, suggestions de liens (notes proches pas encore liées) dans le panneau
   de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont
   vectorisées en arrière-plan dans `<vault>/.tempo/vectors.db` (sqlite-vec), seulement

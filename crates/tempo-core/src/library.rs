@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -27,6 +27,7 @@ use crate::de;
 use crate::error::{not_found, vault_err, Error, Result};
 use crate::index::{fold, Index, SearchMode};
 use crate::journal::file_name;
+use crate::library_vectors::{VectorConfig, VectorStore, BATCH as VECTOR_BATCH};
 use crate::llm::{chat_json, Llm, Msg};
 use crate::prompts::LIBRARY_CLASSIFY_SYSTEM;
 use crate::util::{head, today};
@@ -377,6 +378,43 @@ pub struct Passage {
     pub section: String,
     pub page: Option<u32>,
     pub text: String,
+    /// correspondance : `mots`, `sens` ou `mots+sens`
+    pub matched: &'static str,
+}
+
+/// Passage de l'index (`chunks_fts`) identifié par son rowid.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChunkRow {
+    pub rowid: i64,
+    pub doc: String,
+    pub section: String,
+    pub page: Option<u32>,
+    pub text: String,
+}
+
+/// Fusion par rang réciproque (RRF, k = 60) des passages trouvés par les mots et par le sens :
+/// chaque liste rapporte 1 / (60 + rang) à ses passages. Renvoie les passages du meilleur au
+/// moins bon score, avec leur correspondance (`mots`, `sens` ou `mots+sens`).
+pub fn reciprocal_rank_fusion(lexical: &[ChunkRow], semantic: &[ChunkRow]) -> Vec<(ChunkRow, &'static str)> {
+    const K: f64 = 60.0;
+    let mut fused: Vec<(ChunkRow, f64, bool, bool)> = Vec::new();
+    for (list, is_lexical) in [(lexical, true), (semantic, false)] {
+        for (rank, row) in list.iter().enumerate() {
+            let score = 1.0 / (K + rank as f64 + 1.0);
+            match fused.iter_mut().find(|(r, ..)| r.rowid == row.rowid) {
+                Some(entry) => {
+                    entry.1 += score;
+                    if is_lexical { entry.2 = true } else { entry.3 = true }
+                }
+                None => fused.push((row.clone(), score, is_lexical, !is_lexical)),
+            }
+        }
+    }
+    fused.sort_by(|a, b| b.1.total_cmp(&a.1));
+    fused
+        .into_iter()
+        .map(|(row, _, words, meaning)| (row, if words && meaning { "mots+sens" } else if words { "mots" } else { "sens" }))
+        .collect()
 }
 
 // --- réponses de l'API -----------------------------------------------------------
@@ -389,6 +427,8 @@ pub struct LibraryHit {
     pub snippet: String,
     pub section: String,
     pub page: Option<u32>,
+    /// trouvé par le sens seulement (aucun mot de la recherche)
+    pub semantic: bool,
 }
 
 /// Filtres de la liste des documents ; `-` vaut « sans thème » / « sans projet ».
@@ -513,20 +553,33 @@ pub struct LibraryService {
     /// fichiers non ingérés, recalculés avec la file
     untracked: AtomicUsize,
     watcher: Mutex<Option<RecommendedWatcher>>,
+    /// recherche par le sens (vecteurs des passages), si un modèle d'embeddings est disponible
+    vectors: Option<VectorStore>,
+    stop: AtomicBool,
+    vector_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl LibraryService {
-    pub fn new(settings: Arc<Settings>, vault: Arc<Vault>, index: Arc<Index>, llm: Arc<dyn Llm>) -> Result<Self> {
+    pub fn new(
+        settings: Arc<Settings>,
+        vault: Arc<Vault>,
+        index: Arc<Index>,
+        llm: Arc<dyn Llm>,
+        vectors: Option<VectorConfig>,
+    ) -> Result<Self> {
         std::fs::create_dir_all(settings.library.join(SOURCES_DIR))?;
         let root = dunce::canonicalize(&settings.library)?;
         std::fs::create_dir_all(&settings.library_cache)?;
-        let conn = Connection::open(settings.library_cache.join("library.db"))?;
+        let db_path = settings.library_cache.join("library.db");
+        let conn = Connection::open(&db_path)?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         if version != SCHEMA_VERSION {
             conn.execute_batch("DROP TABLE IF EXISTS documents; DROP TABLE IF EXISTS chunks_fts;")?;
             conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         }
         conn.execute_batch(SCHEMA)?;
+        let vectors = vectors.map(|config| VectorStore::open(&db_path, config)).transpose()?;
         let tools = Tools::discover(settings.pandoc.as_deref(), settings.pdfium.as_deref());
         Ok(LibraryService {
             root,
@@ -539,6 +592,9 @@ impl LibraryService {
             write_lock: Mutex::new(()),
             untracked: AtomicUsize::new(0),
             watcher: Mutex::new(None),
+            vectors,
+            stop: AtomicBool::new(false),
+            vector_thread: Mutex::new(None),
         })
     }
 
@@ -613,6 +669,7 @@ impl LibraryService {
             tx.execute("DELETE FROM documents WHERE id = ?", [id])?;
             tx.execute("DELETE FROM chunks_fts WHERE doc = ?", [id])?;
             tx.commit()?;
+            self.forget_vectors(id)?;
             return Ok(false);
         };
         let hash = content_hash(text.as_deref().unwrap_or_default());
@@ -640,6 +697,7 @@ impl LibraryService {
             )?;
         }
         tx.commit()?;
+        self.forget_vectors(id)?;
         Ok(true)
     }
 
@@ -687,8 +745,12 @@ impl LibraryService {
     pub fn start(self: &Arc<Self>, watch: bool) -> Result<()> {
         if !watch {
             self.sync()?;
+            if let Some(vectors) = &self.vectors {
+                vectors.embed_all()?;
+            }
             return Ok(());
         }
+        self.start_vectors();
         let library = self.clone();
         std::thread::spawn(move || {
             if let Err(err) = library.sync() {
@@ -710,6 +772,78 @@ impl LibraryService {
 
     pub fn stop(&self) {
         self.watcher.lock().unwrap().take();
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.vector_thread.lock().unwrap().take() {
+            let _ = handle.join();
+        }
+    }
+
+    fn forget_vectors(&self, id: &str) -> Result<()> {
+        match &self.vectors {
+            Some(vectors) => vectors.forget(id),
+            None => Ok(()),
+        }
+    }
+
+    /// Vectorisation des passages en arrière-plan : par lots, puis une pause quand tout est fait
+    /// (ou après une erreur du modèle).
+    fn start_vectors(self: &Arc<Self>) {
+        if self.vectors.is_none() || self.vector_thread.lock().unwrap().is_some() {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let handle = std::thread::Builder::new()
+            .name("tempo-library-vectors".into())
+            .spawn(move || loop {
+                let Some(library) = weak.upgrade() else { return };
+                if library.stop.load(Ordering::SeqCst) {
+                    return;
+                }
+                let pause = match library.vectors.as_ref().map(|v| v.embed_pending(VECTOR_BATCH)) {
+                    Some(Ok(done)) if done > 0 => 0,
+                    Some(Err(_)) => 150, // modèle indisponible : 30 s
+                    _ => 25,             // rien à faire : 5 s
+                };
+                drop(library);
+                for _ in 0..pause {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    if weak.upgrade().is_none_or(|l| l.stop.load(Ordering::SeqCst)) {
+                        return;
+                    }
+                }
+            })
+            .expect("thread de vectorisation de la bibliothèque");
+        *self.vector_thread.lock().unwrap() = Some(handle);
+    }
+
+    /// Recherche par le sens disponible (modèle d'embeddings configuré ou livré).
+    pub fn semantic_enabled(&self) -> bool {
+        self.vectors.is_some()
+    }
+
+    /// Avancement de la recherche par le sens (passages vectorisés), `enabled: false` sans modèle.
+    pub fn vector_status(&self) -> Result<Value> {
+        match &self.vectors {
+            Some(vectors) => vectors.status(),
+            None => Ok(json!({"enabled": false, "model": null, "embedded": 0, "total": 0, "error": null})),
+        }
+    }
+
+    /// Passages proches par le sens, du plus proche au plus lointain ; vide sans modèle.
+    fn semantic_rows(&self, query: &str, k: usize) -> Result<Vec<ChunkRow>> {
+        let Some(vectors) = &self.vectors else { return Ok(Vec::new()) };
+        let hits = vectors.nearest(query, k)?;
+        let conn = self.db.lock().unwrap();
+        let mut rows = Vec::new();
+        for (rowid, _) in hits {
+            let row = conn
+                .query_row("SELECT doc, section, page, text FROM chunks_fts WHERE rowid = ? AND ord >= 0", [rowid], |r| {
+                    Ok(ChunkRow { rowid, doc: r.get(0)?, section: r.get(1)?, page: r.get(2)?, text: r.get(3)? })
+                })
+                .optional()?;
+            rows.extend(row);
+        }
+        Ok(rows)
     }
 
     /// Fichiers modifiés dans le dossier (watcher) : pivots réindexés, file recalculée.
@@ -778,7 +912,7 @@ impl LibraryService {
         if words.is_empty() {
             let mut hits: Vec<LibraryHit> = documents
                 .into_values()
-                .map(|document| LibraryHit { document, snippet: String::new(), section: String::new(), page: None })
+                .map(|document| LibraryHit { document, snippet: String::new(), section: String::new(), page: None, semantic: false })
                 .collect();
             hits.sort_by_key(|h| (fold(&h.document.title), h.document.id.clone()));
             return Ok(hits);
@@ -801,7 +935,19 @@ impl LibraryService {
             }
             if let Some(document) = documents.get(&doc) {
                 let section = if section == "Fiche" { String::new() } else { section };
-                hits.push(LibraryHit { document: document.clone(), snippet, section, page });
+                hits.push(LibraryHit { document: document.clone(), snippet, section, page, semantic: false });
+            }
+        }
+        drop(stmt);
+        drop(conn);
+        // documents proches par le sens que les mots n'ont pas trouvés, à la suite
+        for row in self.semantic_rows(filter.q.as_deref().unwrap_or_default(), 30)? {
+            if !seen.insert(row.doc.clone()) {
+                continue;
+            }
+            if let Some(document) = documents.get(&row.doc) {
+                let snippet = head(&row.text.split_whitespace().collect::<Vec<_>>().join(" "), 220);
+                hits.push(LibraryHit { document: document.clone(), snippet, section: row.section, page: row.page, semantic: true });
             }
         }
         Ok(hits)
@@ -832,24 +978,31 @@ impl LibraryService {
         let unfiltered = LibraryFilter { q: None, ..filter.clone() };
         let allowed: HashMap<String, Document> =
             self.list(&unfiltered)?.into_iter().map(|h| (h.document.id.clone(), h.document)).collect();
-        let conn = self.db.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT doc, section, page, text FROM chunks_fts WHERE chunks_fts MATCH ? AND ord >= 0 \
-             ORDER BY bm25(chunks_fts, 0, 0, 0, 8.0, 2.0, 1.0) LIMIT 500",
-        )?;
-        let rows = stmt.query_map([&fts], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<u32>>(2)?, r.get::<_, String>(3)?))
-        })?;
+        // recherche par le sens d'abord : le modèle se charge hors du verrou de l'index
+        let semantic = if mode == SearchMode::Phrase { Vec::new() } else { self.semantic_rows(query, 40)? };
+        let lexical: Vec<ChunkRow> = {
+            let conn = self.db.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "SELECT rowid, doc, section, page, text FROM chunks_fts WHERE chunks_fts MATCH ? AND ord >= 0 \
+                 ORDER BY bm25(chunks_fts, 0, 0, 0, 8.0, 2.0, 1.0) LIMIT 200",
+            )?;
+            stmt.query_map([&fts], |r| {
+                Ok(ChunkRow { rowid: r.get(0)?, doc: r.get(1)?, section: r.get(2)?, page: r.get(3)?, text: r.get(4)? })
+            })?
+            .flatten()
+            .collect()
+        };
         let mut per_document: HashMap<String, usize> = HashMap::new();
         let mut passages = Vec::new();
-        for (doc, section, page, text) in rows.flatten() {
+        for (row, matched) in reciprocal_rank_fusion(&lexical, &semantic) {
+            let ChunkRow { doc, section, page, text, .. } = row;
             let Some(document) = allowed.get(&doc) else { continue };
             let count = per_document.entry(doc.clone()).or_default();
             if *count >= 3 {
                 continue;
             }
             *count += 1;
-            passages.push(Passage { document: doc, title: document.title.clone(), section, page, text });
+            passages.push(Passage { document: doc, title: document.title.clone(), section, page, text, matched });
             if passages.len() >= limit {
                 break;
             }
@@ -1378,5 +1531,23 @@ mod reading_tests {
         let sizes = outline_sizes(BODY);
         assert_eq!(sizes.iter().map(|s| (s.title.as_str(), s.chars)).collect::<Vec<_>>(),
                    vec![("Spec", 9), ("Flux", 13), ("Fréquence", 13), ("Erreurs", 10)]);
+    }
+}
+
+#[cfg(test)]
+mod fusion_tests {
+    use super::*;
+
+    fn row(rowid: i64) -> ChunkRow {
+        ChunkRow { rowid, doc: format!("d{rowid}"), section: String::new(), page: None, text: String::new() }
+    }
+
+    #[test]
+    fn fusion_par_rang_reciproque() {
+        let fused = reciprocal_rank_fusion(&[row(1), row(2), row(3)], &[row(3), row(4)]);
+        let order: Vec<(i64, &str)> = fused.iter().map(|(r, m)| (r.rowid, *m)).collect();
+        // 3 : 1/63 + 1/61 > 1 : 1/61 > 2 : 1/62 = 4 : 1/62 (mots d'abord à égalité)
+        assert_eq!(order, vec![(3, "mots+sens"), (1, "mots"), (2, "mots"), (4, "sens")]);
+        assert!(reciprocal_rank_fusion(&[], &[]).is_empty());
     }
 }

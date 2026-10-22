@@ -314,7 +314,17 @@ déplié sur elle.
 
 ## Recherche sémantique
 
-Activée par `TEMPO_EMBED_MODEL` (API compatible OpenAI, URL et clé de Vibe par défaut).
+Modèle d'embeddings : celui d'une API compatible OpenAI si `TEMPO_EMBED_MODEL` est renseigné
+(URL et clé de Vibe par défaut), sinon le **modèle local** livré avec l'application
+(`embed_local.rs`) : multilingual-e5-small quantifié int8 (ONNX, 384 dimensions, français et
+anglais, préfixes `query:` / `passage:`), exécuté par ONNX Runtime (`onnxruntime.dll`, chargée à
+l'exécution par la crate `ort` en mode `load-dynamic`). Le modèle n'est chargé qu'au premier
+texte à vectoriser (environ 200 Mo de mémoire) et libéré après 5 minutes sans usage ;
+l'inférence se limite à 2 cœurs. Fichiers dans `resources/models/multilingual-e5-small/`
+(`TEMPO_EMBED_LOCAL_DIR`, `TEMPO_ONNXRUNTIME`), téléchargés au build par
+`scripts/telecharger-outils.ps1`, jamais à l'exécution ; `TEMPO_EMBED_LOCAL=off` désactive le
+modèle local. La crate `ort` est figée en 2.0.0-rc.13 (Rust 1.88) : la rc.15 exige Rust 1.92 ;
+l'API C d'ONNX Runtime étant rétrocompatible, la DLL 1.31 convient.
 Chaque note (hors modèles et inbox) est découpée en passages d'environ 1 200 caractères
 (20 au plus), vectorisés dans `.tempo/vectors.db` (sqlite-vec) en arrière-plan ; une note
 n'est revectorisée que si son hash change, et un changement de modèle repart de zéro.
@@ -436,9 +446,20 @@ affiche les citations comme des liens (extrait au survol, ⚠ si non vérifiée)
 sources sous la réponse ; un clic ouvre la fiche au passage (`#/bibliotheque?doc=…&section=…`
 ou `&page=…` : PDF ouvert à la page, sinon section ou page du texte surlignée).
 
+**Recherche hybride** (`library_vectors.rs`) : chaque passage de l'index reçoit un vecteur
+(même modèle que les notes, table sqlite-vec `chunk_vec` de `library.db`, même rowid que
+`chunks_fts`) ; un fil de fond vectorise par lots les passages qui n'en ont pas, un document
+réindexé perd ses vecteurs et un changement de modèle repart de zéro (`GET
+/api/library/status` : passages vectorisés sur le total, affiché dans la barre latérale). Une
+recherche combine les rangs plein texte et sémantiques par fusion RRF (1 / (60 + rang) par
+liste) : `search_documents` indique pour chaque passage sa correspondance (`mots`, `sens`,
+`mots+sens`) ; la vue liste d'abord les documents trouvés par les mots, puis ceux « proches par
+le sens ». e5-small donne des similarités serrées (0,75 à 0,88 sur un corpus de test, hors
+sujet compris) : seuls sont retenus les passages au-dessus d'un seuil propre au modèle (0,83
+pour e5, `TEMPO_EMBED_MIN_SIMILARITY` pour l'ajuster au corpus réel) et à moins de 0,025 du
+meilleur. Pas de reranker pour l'instant.
+
 **Lots suivants** :
-- embeddings locaux (multilingual-e5-small quantifié, ONNX, livré avec l'installeur, chargé à
-  la demande) et fusion RRF avec la recherche plein texte ; pas de reranker pour l'instant ;
 - synthèses multi-documents enregistrées comme notes, documents choisis par l'agent (écart
   assumé au principe 3) et note validée par la carte de proposition du chat.
 
@@ -451,6 +472,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 
 - [x] MVP : vault, index, éditeur, tâches (kanban), inbox, rapport hebdo, rapport de tâche
 - [x] Embeddings (sqlite-vec) : suggestions de liens, recherche sémantique, outil du chat
+- [x] Embeddings locaux (multilingual-e5-small, ONNX Runtime) quand aucune API n'est configurée
 - [x] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer / reformuler une sélection)
 - [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher, formules `$…$` / `$$…$$` rendues par KaTeX)
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
@@ -476,6 +498,6 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Bibliothèque (lot 1) : dépôt de documents, conversion en Markdown pivot, file « À classer »
   (thèmes, projets, tags, résumé proposés puis validés), vue par thème ou projet, recherche
 - [x] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
-- [ ] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
+- [x] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
 - [ ] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

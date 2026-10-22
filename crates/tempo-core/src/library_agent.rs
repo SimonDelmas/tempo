@@ -250,7 +250,7 @@ fn search(library: &LibraryService, args: SearchArgs, log: &mut ReadLog) -> Resu
         });
         results.push(json!({
             "document": p.document, "titre": p.title, "section": p.section, "page": p.page,
-            "citation": citation_for(&p.document, &p.section, p.page), "texte": p.text,
+            "citation": citation_for(&p.document, &p.section, p.page), "correspondance": p.matched, "texte": p.text,
         }));
     }
     if results.is_empty() {

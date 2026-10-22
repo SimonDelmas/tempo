@@ -17,7 +17,10 @@ hex = "0.4.3"
 indexmap = { version = "2.14.2", features = ["serde"] }
 mail-parser = "0.11.9"
 md5 = "0.8.1"
+
 notify = "8.2.0"
+ndarray = "0.17.2"
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-27"] }
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_latest", "thread_safe"] }
 quick-xml = "0.42.0"
 regex = "1.13.1"
@@ -27,6 +30,7 @@ serde_json = { version = "1.0.154", features = ["preserve_order"] }
 sha2 = "0.11.1"
 sqlite-vec = "0.1.9"
 thiserror = "2.0.21"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "net", "sync", "signal"] }
 tower = { version = "0.5.3", features = ["util"] }
 tower-http = { version = "0.7.1", features = ["fs"] }

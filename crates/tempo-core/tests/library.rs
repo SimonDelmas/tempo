@@ -360,3 +360,42 @@ async fn recherche_elargie_si_aucun_passage_n_a_tous_les_mots() {
     assert!(call(library, "read_document", &args(json!({"document": "Inconnu"})), &mut log).unwrap().is_err());
     assert!(call(library, "search_notes", &args(json!({})), &mut log).is_none());
 }
+
+/// Recherche hybride : vecteurs des passages calculés, résultats par le sens fusionnés (RRF).
+#[tokio::test]
+async fn recherche_hybride_par_les_mots_et_par_le_sens() {
+    use tempo_core::library_agent::{call, ReadLog};
+    use tempo_core::semantic::hashing_embedder;
+    let app = TestApp::new(None, Some(hashing_embedder(256)));
+    app.upload("Interface articles.md", SPEC.as_bytes()).await;
+    app.upload("Planning.txt", "Planning de la recette : lot 1 en mars, lot 2 en juin.".as_bytes()).await;
+    app.services.library.start(false).unwrap();
+    let status = app.get("/api/library/status").await.json();
+    assert_eq!(status["enabled"], true);
+    assert!(status["total"].as_i64().unwrap() >= 3);
+    assert_eq!(status["embedded"], status["total"]);
+
+    // « unités » est dans la spécification, « lointaines » nulle part : aucun passage n'a tous les
+    // mots, mais la spécification est proche par le sens
+    let hits = app.get(&format!("/api/library?q={}", q("unités lointaines"))).await.json();
+    assert_eq!(hits.as_array().unwrap().len(), 1, "{hits}");
+    assert_eq!(hits[0]["id"], "Interface articles");
+    assert_eq!(hits[0]["semantic"], true);
+    // trouvé par les mots : pas marqué « sens »
+    let hits = app.get(&format!("/api/library?q={}", q("recette mars"))).await.json();
+    assert_eq!(hits[0]["id"], "Planning");
+    assert_eq!(hits[0]["semantic"], false);
+
+    let mut log = ReadLog::default();
+    let args = json!({"query": "unités PCE"});
+    let found = call(&app.services.library, "search_documents", args.as_object().unwrap(), &mut log).unwrap().unwrap().unwrap();
+    assert_eq!(found["passages"][0]["correspondance"], "mots+sens", "{found}");
+    // un document réindexé perd ses vecteurs, recalculés ensuite
+    let root = library_dir(&app);
+    std::fs::write(root.join("Planning.md"), std::fs::read_to_string(root.join("Planning.md")).unwrap().replace("juin", "juillet")).unwrap();
+    app.services.library.sync().unwrap();
+    let status = app.get("/api/library/status").await.json();
+    assert!(status["embedded"].as_i64().unwrap() < status["total"].as_i64().unwrap());
+    app.services.library.start(false).unwrap();
+    assert_eq!(app.get("/api/library/status").await.json()["embedded"], status["total"]);
+}

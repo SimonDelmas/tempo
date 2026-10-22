@@ -51,7 +51,7 @@ export type Config = {
   /** raccourcis de navigation entre les vues (« Alt+ArrowLeft ») */
   shortcuts: { back: string; forward: string };
   /** bibliothèque : dossier, formats acceptés, taille maximale d'un fichier, outils trouvés */
-  library: { dir: string; formats: string[]; max_upload: number; pandoc: boolean; pdfium: boolean };
+  library: { dir: string; formats: string[]; max_upload: number; pandoc: boolean; pdfium: boolean; semantic: boolean };
 };
 
 export type InboxItem = { path: string; content: string; preview: string };
@@ -443,7 +443,11 @@ export type LibraryDocument = {
 };
 
 /** document trouvé, avec son passage le plus pertinent (vide sans recherche) */
-export type LibraryHit = LibraryDocument & { snippet: string; section: string; page: number | null };
+/** semantic : trouvé par le sens seulement (aucun mot de la recherche) */
+export type LibraryHit = LibraryDocument & { snippet: string; section: string; page: number | null; semantic: boolean };
+
+/** avancement de la recherche par le sens : passages vectorisés sur le total */
+export type VectorStatus = { enabled: boolean; model: string | null; embedded: number; total: number; error: string | null };
 
 export type LibraryDetail = LibraryDocument & {
   /** texte converti (corps du pivot) */
@@ -494,6 +498,7 @@ export const library = {
   list: (filter: LibraryFilter = {}) =>
     request<LibraryHit[]>("GET", "/api/library" + q(Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) as Record<string, string>)),
   queue: () => request<LibraryQueue>("GET", "/api/library/queue"),
+  status: () => request<VectorStatus>("GET", "/api/library/status"),
   /** dépose un fichier (corps brut) ; le serveur le convertit et l'ajoute à la file « À classer » */
   upload: async (file: File): Promise<Ingested> => {
     const response = await fetch("/api/library/upload" + q({ name: file.name }), { method: "POST", body: file });

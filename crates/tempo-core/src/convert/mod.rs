@@ -59,7 +59,7 @@ impl Tools {
     }
 }
 
-fn find_tool(configured: Option<&Path>, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_tool(configured: Option<&Path>, name: &str) -> Option<PathBuf> {
     if let Some(path) = configured {
         return Some(if path.is_dir() { path.join(name) } else { path.to_path_buf() });
     }

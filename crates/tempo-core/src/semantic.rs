@@ -34,15 +34,24 @@ const SKIPPED_TYPES: [&str; 2] = ["modele", "inbox"];
 static PARAGRAPH_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\n\s*\n").unwrap());
 static WORD3_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w{3,}").unwrap());
 
+/// Rôle des textes à vectoriser : certains modèles (e5) les préfixent différemment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbedKind {
+    /// question ou recherche de l'utilisateur
+    Query,
+    /// passage d'une note ou d'un document
+    Passage,
+}
+
 /// Vectorise une liste de textes (un vecteur par texte, dans l'ordre).
-pub type Embedder = Arc<dyn Fn(&[String]) -> Result<Vec<Vec<f32>>> + Send + Sync>;
+pub type Embedder = Arc<dyn Fn(&[String], EmbedKind) -> Result<Vec<Vec<f32>>> + Send + Sync>;
 
 pub fn openai_embedder(settings: &Settings) -> Result<Embedder> {
     let agent = http_agent(settings.llm_ca_bundle.as_deref(), Duration::from_secs(120))?;
     let base = settings.embed_base_url.clone().unwrap_or_default().trim_end_matches('/').to_string();
     let key = settings.embed_api_key.clone().unwrap_or_default();
     let model = settings.embed_model.clone().unwrap_or_default();
-    Ok(Arc::new(move |texts: &[String]| {
+    Ok(Arc::new(move |texts: &[String], _: EmbedKind| {
         let body = json!({"model": model, "input": texts});
         let response = post_json(&agent, &format!("{base}/embeddings"), &key, &body, "d'embeddings")?;
         let text = response
@@ -66,7 +75,7 @@ pub fn openai_embedder(settings: &Settings) -> Result<Embedder> {
 
 /// Embeddings factices (sac de mots haché), pour les tests.
 pub fn hashing_embedder(dim: usize) -> Embedder {
-    Arc::new(move |texts: &[String]| {
+    Arc::new(move |texts: &[String], _: EmbedKind| {
         Ok(texts
             .iter()
             .map(|text| {
@@ -111,7 +120,7 @@ pub fn chunk_text(title: &str, body: &str) -> Vec<String> {
     chunks.into_iter().take(MAX_CHUNKS_PER_NOTE).map(|c| format!("{title}\n\n{c}")).collect()
 }
 
-fn pack(vector: &[f32]) -> Vec<u8> {
+pub(crate) fn pack(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
@@ -119,7 +128,7 @@ fn unpack(blob: &[u8]) -> Vec<f32> {
     blob.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect()
 }
 
-fn register_sqlite_vec() {
+pub(crate) fn register_sqlite_vec() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| unsafe {
         #[allow(clippy::missing_transmute_annotations)]
@@ -278,7 +287,7 @@ impl SemanticIndex {
                 let mut vectors: Vec<Vec<f32>> = Vec::new();
                 for group in pieces.chunks(BATCH_SIZE) {
                     let texts: Vec<String> = group.iter().map(|(_, t)| t.clone()).collect();
-                    vectors.extend(embedder(&texts)?);
+                    vectors.extend(embedder(&texts, EmbedKind::Passage)?);
                 }
                 let mut conn = conn.lock().unwrap();
                 let tx = conn.transaction()?;
@@ -408,7 +417,7 @@ impl SemanticIndex {
         let Some(embedder) = self.embedder.as_ref().filter(|_| self.enabled() && !query.trim().is_empty()) else {
             return Ok(Vec::new());
         };
-        let vector = embedder(&[query.to_string()])?.into_iter().next().unwrap_or_default();
+        let vector = embedder(&[query.to_string()], EmbedKind::Query)?.into_iter().next().unwrap_or_default();
         self.nearest(&vector, k, &HashSet::new())
     }
 
