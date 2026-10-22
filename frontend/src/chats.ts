@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ChatProposal, ChatStep } from "./api";
+import { api, ChatProposal, ChatStep, Citation } from "./api";
 
 /** Conversations avec l'agent, conservées dans le navigateur (localStorage). */
 
@@ -8,6 +8,8 @@ export type ChatEntry = {
   content: string;
   steps?: ChatStep[];
   links?: Record<string, string>;
+  /** citations de documents de la bibliothèque, vérifiées par le serveur */
+  citations?: Citation[];
   proposals?: ProposalState[];
   error?: boolean;
 };
@@ -130,7 +132,7 @@ export function useChats({ onCreated, onFinished }: ChatEvents) {
         }
       });
       entry = {
-        role: "assistant", content: reply.answer, steps: reply.steps, links: reply.links,
+        role: "assistant", content: reply.answer, steps: reply.steps, links: reply.links, citations: reply.citations,
         proposals: reply.proposals.map((proposal) => ({ proposal, state: "pending" })),
       };
     } catch (e) {

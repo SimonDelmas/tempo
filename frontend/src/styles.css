@@ -576,3 +576,15 @@ fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
   .document-body:has(.document-outline) { grid-template-columns: 1fr; }
   .document-outline { position: static; max-height: 30vh; }
 }
+
+/* --- citations de documents dans le chat ------------------------------- */
+.wikilink.citation { background: color-mix(in srgb, #3f8a4f 14%, transparent); color: inherit; }
+.wikilink.citation.unverified { background: var(--warning-bg); color: var(--danger); }
+.chat-sources { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.chat-sources summary { cursor: pointer; }
+.chat-sources ul { list-style: none; margin: 4px 0 0; padding-left: 4px; }
+.chat-sources li.unverified, .chat-sources .unverified-count { color: var(--danger); }
+.chat-sources button.link { color: inherit; font-size: 12px; }
+.chat-sources button.link:hover { color: var(--accent); }
+.page-marker.flash, .doc-heading.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }

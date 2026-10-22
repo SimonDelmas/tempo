@@ -25,7 +25,7 @@ use crate::config::Settings;
 use crate::convert::{self, format_of, Tools, FORMATS};
 use crate::de;
 use crate::error::{not_found, vault_err, Error, Result};
-use crate::index::{fold, Index};
+use crate::index::{fold, Index, SearchMode};
 use crate::journal::file_name;
 use crate::llm::{chat_json, Llm, Msg};
 use crate::prompts::LIBRARY_CLASSIFY_SYSTEM;
@@ -286,6 +286,97 @@ pub fn outline(body: &str) -> Vec<OutlineEntry> {
         }
     }
     entries
+}
+
+// --- lecture par parties (agent) -------------------------------------------------
+
+/// Section de la table des matières avec sa taille (caractères) et sa page de début.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SectionSize {
+    pub level: usize,
+    pub title: String,
+    pub chars: usize,
+    pub page: Option<u32>,
+}
+
+/// Titres du corps avec la taille du texte qui suit chacun (jusqu'au titre suivant).
+pub fn outline_sizes(body: &str) -> Vec<SectionSize> {
+    let mut sections: Vec<SectionSize> = Vec::new();
+    let mut page: Option<u32> = None;
+    let mut in_code = false;
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            in_code = !in_code;
+        } else if !in_code {
+            if let Some(caps) = PAGE_RE.captures(trimmed) {
+                page = caps[1].parse().ok();
+                continue;
+            }
+            if let Some(caps) = HEADING_RE.captures(trimmed) {
+                sections.push(SectionSize { level: caps[1].len(), title: caps[2].to_string(), chars: 0, page });
+                continue;
+            }
+        }
+        if let Some(last) = sections.last_mut() {
+            last.chars += line.chars().count() + 1;
+        }
+    }
+    sections
+}
+
+/// Texte d'une section (titre compris, sous-sections comprises) : titre identique sans casse ni
+/// accents, sinon le premier titre qui le contient ; renvoie le titre trouvé.
+pub fn section_text(body: &str, wanted: &str) -> Option<(String, String)> {
+    let key = fold(wanted.trim().trim_start_matches('#'));
+    if key.is_empty() {
+        return None;
+    }
+    let lines: Vec<&str> = body.lines().collect();
+    let mut in_code = false;
+    let mut headings: Vec<(usize, usize, String)> = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            in_code = !in_code;
+        } else if !in_code && let Some(caps) = HEADING_RE.captures(trimmed) {
+            headings.push((i, caps[1].len(), caps[2].to_string()));
+        }
+    }
+    let found = headings
+        .iter()
+        .position(|(_, _, t)| fold(t) == key)
+        .or_else(|| headings.iter().position(|(_, _, t)| fold(t).contains(&key)))?;
+    let (start, level, title) = headings[found].clone();
+    let end = headings[found + 1..].iter().find(|(_, l, _)| *l <= level).map(|(i, _, _)| *i).unwrap_or(lines.len());
+    Some((title, lines[start..end].join("\n").trim().to_string()))
+}
+
+/// Texte des pages `from` à `to` (marqueurs `<!-- page N -->` d'un PDF), `None` sans marqueur.
+pub fn pages_text(body: &str, from: u32, to: u32) -> Option<String> {
+    let mut page: Option<u32> = None;
+    let mut seen = false;
+    let mut kept: Vec<&str> = Vec::new();
+    for line in body.lines() {
+        if let Some(caps) = PAGE_RE.captures(line.trim()) {
+            page = caps[1].parse().ok();
+            seen = true;
+        }
+        if page.is_some_and(|p| p >= from && p <= to) {
+            kept.push(line);
+        }
+    }
+    seen.then(|| kept.join("\n").trim().to_string())
+}
+
+/// Passage trouvé par la recherche de l'agent.
+#[derive(Debug, Clone, Serialize)]
+pub struct Passage {
+    pub document: String,
+    pub title: String,
+    pub section: String,
+    pub page: Option<u32>,
+    pub text: String,
 }
 
 // --- réponses de l'API -----------------------------------------------------------
@@ -718,6 +809,52 @@ impl LibraryService {
 
     pub fn get(&self, id: &str) -> Result<Document> {
         Ok(self.read_pivot(id)?.0)
+    }
+
+    /// Document et texte converti (corps du pivot).
+    pub fn content(&self, id: &str) -> Result<(Document, String)> {
+        let (document, _, body) = self.read_pivot(id)?;
+        Ok((document, body.trim_start_matches('\n').to_string()))
+    }
+
+    /// Passages qui correspondent à une recherche (plusieurs par document, 3 au plus), du plus
+    /// pertinent au moins pertinent ; `mode` : tous les mots, la phrase, ou l'un des mots.
+    pub fn search_passages(&self, query: &str, mode: SearchMode, filter: &LibraryFilter, limit: usize) -> Result<Vec<Passage>> {
+        let words: Vec<&str> = WORD_RE.find_iter(query).map(|m| m.as_str()).collect();
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fts = match mode {
+            SearchMode::Words => words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" "),
+            SearchMode::Phrase => format!("\"{}\"", words.join(" ")),
+            SearchMode::Any => words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" OR "),
+        };
+        let unfiltered = LibraryFilter { q: None, ..filter.clone() };
+        let allowed: HashMap<String, Document> =
+            self.list(&unfiltered)?.into_iter().map(|h| (h.document.id.clone(), h.document)).collect();
+        let conn = self.db.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT doc, section, page, text FROM chunks_fts WHERE chunks_fts MATCH ? AND ord >= 0 \
+             ORDER BY bm25(chunks_fts, 0, 0, 0, 8.0, 2.0, 1.0) LIMIT 500",
+        )?;
+        let rows = stmt.query_map([&fts], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<u32>>(2)?, r.get::<_, String>(3)?))
+        })?;
+        let mut per_document: HashMap<String, usize> = HashMap::new();
+        let mut passages = Vec::new();
+        for (doc, section, page, text) in rows.flatten() {
+            let Some(document) = allowed.get(&doc) else { continue };
+            let count = per_document.entry(doc.clone()).or_default();
+            if *count >= 3 {
+                continue;
+            }
+            *count += 1;
+            passages.push(Passage { document: doc, title: document.title.clone(), section, page, text });
+            if passages.len() >= limit {
+                break;
+            }
+        }
+        Ok(passages)
     }
 
     /// Document désigné par un lien `[[nom]]` : son identifiant, sinon son titre (sans casse
@@ -1214,5 +1351,32 @@ mod tests {
         assert_eq!((document.size, document.pages, document.pending), (12, Some(3), true));
         let (note, _) = split_frontmatter("---\ntype: note\n---\n");
         assert!(document_from("x", &note).is_none());
+    }
+}
+
+#[cfg(test)]
+mod reading_tests {
+    use super::*;
+
+    const BODY: &str = "# Spec\n\nIntro.\n\n## Flux\n\nLe flux A.\n\n### Fréquence\n\nQuotidien.\n\n## Erreurs\n\nRapport.\n";
+
+    #[test]
+    fn section_avec_ses_sous_sections() {
+        let (title, text) = section_text(BODY, "flux").unwrap();
+        assert_eq!(title, "Flux");
+        assert_eq!(text, "## Flux\n\nLe flux A.\n\n### Fréquence\n\nQuotidien.");
+        assert_eq!(section_text(BODY, "frequence").unwrap().1, "### Fréquence\n\nQuotidien.");
+        assert_eq!(section_text(BODY, "Err").unwrap().0, "Erreurs");
+        assert!(section_text(BODY, "absente").is_none());
+    }
+
+    #[test]
+    fn pages_et_tailles() {
+        let pdf = "<!-- page 1 -->\n\nUn.\n\n<!-- page 2 -->\n\nDeux.\n\n<!-- page 3 -->\n\nTrois.\n";
+        assert_eq!(pages_text(pdf, 2, 3).unwrap(), "<!-- page 2 -->\n\nDeux.\n\n<!-- page 3 -->\n\nTrois.");
+        assert!(pages_text(BODY, 1, 1).is_none());
+        let sizes = outline_sizes(BODY);
+        assert_eq!(sizes.iter().map(|s| (s.title.as_str(), s.chars)).collect::<Vec<_>>(),
+                   vec![("Spec", 9), ("Flux", 13), ("Fréquence", 13), ("Erreurs", 10)]);
     }
 }

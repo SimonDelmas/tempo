@@ -279,3 +279,84 @@ async fn mail_et_piece_jointe() {
     assert!(content.contains("**Pièces jointes** : planning.txt") && content.contains("Voici le planning"), "{content}");
     assert_eq!(app.get("/api/library/queue").await.json()["pending"].as_array().unwrap().len(), 2);
 }
+
+/// Agent : recherche de passages, lecture adaptée à la taille, citations vérifiées.
+#[tokio::test]
+async fn agent_cite_les_passages_lus() {
+    use tempo_core::chat::ChatMessage;
+    use tempo_core::llm::fake_tool_calls;
+
+    let long: String = (1..=6)
+        .map(|i| format!("## Chapitre {i}\n\n{}\n\n", format!("Contenu du chapitre {i} sur la migration. ").repeat(250)))
+        .collect();
+    let rapport = "<!-- page 1 -->\n\nIndicateurs de qualité.\n\n<!-- page 2 -->\n\nTrois chantiers douaniers prévus.\n";
+    let answer = "Les unités PCE deviennent PC [[Interface articles#Mapping]]. Le chapitre 3 traite de la migration \
+                  [[Guide long#Chapitre 3]]. Trois chantiers sont prévus [[Rapport#p. 2]]. Hors lecture : \
+                  [[Guide long#Chapitre 1]], [[Interface articles#Annexe]], [[Rapport#p. 1]]. Voir aussi [[T-001]].";
+    let llm = FakeLlm::new([
+        fake_tool_calls(&[("search_documents", json!({"query": "unités PCE"})), ("list_documents", json!({}))]),
+        fake_tool_calls(&[("read_document", json!({"document": "Guide long"}))]),
+        fake_tool_calls(&[("read_document", json!({"document": "[[Guide long]]", "section": "chapitre 3"})),
+                          ("read_document", json!({"document": "Rapport", "pages": "2"}))]),
+        answer.to_string(),
+    ]);
+    let app = TestApp::new(Some(llm.clone() as Arc<dyn Llm>), None);
+    app.upload("Interface articles.md", SPEC.as_bytes()).await;
+    app.upload("Guide long.md", long.as_bytes()).await;
+    app.upload("Rapport.md", rapport.as_bytes()).await;
+
+    let reply = app.services.chat.ask(&[ChatMessage::user("Que deviennent les unités PCE ?")], None).unwrap();
+    let tools: Vec<&str> = reply["steps"].as_array().unwrap().iter().map(|s| s["tool"].as_str().unwrap()).collect();
+    assert_eq!(tools, vec!["search_documents", "list_documents", "read_document", "read_document", "read_document"]);
+
+    // résultats transmis au modèle
+    let calls = llm.calls();
+    let results: Vec<&str> = calls[3].messages.iter().filter(|m| m.role == "tool").map(|m| m.content.as_str()).collect();
+    assert!(results[0].contains("\"citation\":\"[[Interface articles#Mapping]]\"") && results[0].contains("PCE deviennent PC"), "{}", results[0]);
+    assert!(results[1].contains("\"themes\""), "{}", results[1]);
+    // document long : table des matières sans texte
+    assert!(results[2].contains("table_des_matieres") && !results[2].contains("\"texte\""), "{}", &results[2][..300]);
+    assert!(results[3].contains("\"section\":\"Chapitre 3\"") && results[3].contains("Contenu du chapitre 3"));
+    assert!(!results[3].contains("chapitre 4"));
+    assert!(results[4].contains("Trois chantiers") && !results[4].contains("Indicateurs"), "{}", results[4]);
+
+    let citations = reply["citations"].as_array().unwrap();
+    let verdict: Vec<(&str, bool, Option<&str>)> =
+        citations.iter().map(|c| (c["link"].as_str().unwrap(), c["verified"].as_bool().unwrap(), c["reason"].as_str())).collect();
+    assert_eq!(
+        verdict,
+        vec![
+            ("Interface articles#Mapping", true, None),
+            ("Guide long#Chapitre 3", true, None),
+            ("Rapport#p. 2", true, None),
+            ("Guide long#Chapitre 1", false, Some("passage non consulté par l'agent")),
+            ("Interface articles#Annexe", false, Some("section introuvable dans le document")),
+            ("Rapport#p. 1", false, Some("passage non consulté par l'agent")),
+        ]
+    );
+    assert_eq!(citations[0]["document"], "Interface articles");
+    assert_eq!(citations[2]["page"], 2);
+    assert!(citations[0]["excerpt"].as_str().unwrap().contains("PCE deviennent PC"));
+    // [[T-001]] reste un lien de note
+    assert_eq!(reply["links"]["T-001"], "taches/T-001-migration-referentiel-articles.md");
+}
+
+#[tokio::test]
+async fn recherche_elargie_si_aucun_passage_n_a_tous_les_mots() {
+    use tempo_core::library_agent::{call, ReadLog};
+    let (app, _) = app(vec![]);
+    app.upload("Interface articles.md", SPEC.as_bytes()).await;
+    let library = &app.services.library;
+    let mut log = ReadLog::default();
+    let args = |v: Value| v.as_object().unwrap().clone();
+    let found = call(library, "search_documents", &args(json!({"query": "unités introuvablexyz", "theme": ""})), &mut log)
+        .unwrap().unwrap().unwrap();
+    assert!(found["remarque"].as_str().unwrap().contains("l'un d'eux"), "{found}");
+    assert_eq!(found["passages"][0]["citation"], "[[Interface articles#Mapping]]");
+    assert_eq!(log.0.len(), 1);
+    let none = call(library, "search_documents", &args(json!({"query": "zzz yyy"})), &mut log).unwrap().unwrap().unwrap();
+    assert_eq!(none, json!([]));
+    // erreur de l'agent renvoyée en texte, outil inconnu ignoré
+    assert!(call(library, "read_document", &args(json!({"document": "Inconnu"})), &mut log).unwrap().is_err());
+    assert!(call(library, "search_notes", &args(json!({})), &mut log).is_none());
+}

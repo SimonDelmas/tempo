@@ -22,6 +22,8 @@ use crate::imputations::{Account, Hours, ImputationService, CATEGORIES};
 use crate::inbox::{split_summaries, InboxItem, InboxProposal, InboxService};
 use crate::index::{extract_links, infer_type, Index, NoteRow, SearchMode};
 use crate::journal::{JournalService, NOTE_KINDS};
+use crate::library::LibraryService;
+use crate::library_agent::{self, ReadLog};
 use crate::llm::{Llm, Msg, ToolDef};
 use crate::prompts::CHAT_SYSTEM;
 use crate::reports::ReportService;
@@ -31,7 +33,7 @@ use crate::tasks::{week_start, NewTask, Task, TaskService, EDITABLE_FIELDS, PRIO
 use crate::util::{clip, date_or_today, iso_date, parse_date, today, week_bounds, week_label};
 use crate::vault::{content_hash, split_frontmatter, value_str, Vault};
 
-pub const MAX_STEPS: usize = 8;
+pub const MAX_STEPS: usize = 10;
 const MAX_NOTE_CHARS: usize = 8000;
 const MAX_RESULT_CHARS: usize = 12000;
 const MAX_HISTORY: usize = 20;
@@ -828,6 +830,8 @@ pub struct ChatDeps {
     pub reports: Arc<ReportService>,
     pub imputations: Arc<ImputationService>,
     pub drafts: Arc<DraftService>,
+    /// bibliothèque de documents (outils search_documents, read_document, list_documents)
+    pub library: Option<Arc<LibraryService>>,
 }
 
 pub struct ChatService {
@@ -839,6 +843,7 @@ pub struct ChatService {
     reports: Arc<ReportService>,
     imputations: Arc<ImputationService>,
     drafts: Arc<DraftService>,
+    library: Option<Arc<LibraryService>>,
     llm: Arc<dyn Llm>,
     settings: Arc<Settings>,
     semantic: Option<Arc<SemanticIndex>>,
@@ -846,7 +851,7 @@ pub struct ChatService {
 
 impl ChatService {
     pub fn new(deps: ChatDeps, llm: Arc<dyn Llm>, settings: Arc<Settings>, semantic: Option<Arc<SemanticIndex>>) -> Self {
-        let ChatDeps { vault, index, tasks, journal, inbox, reports, imputations, drafts } = deps;
+        let ChatDeps { vault, index, tasks, journal, inbox, reports, imputations, drafts, library } = deps;
         ChatService {
             vault,
             index,
@@ -856,6 +861,7 @@ impl ChatService {
             reports,
             imputations,
             drafts,
+            library,
             llm,
             settings,
             semantic: semantic.filter(|s| s.enabled()),
@@ -867,6 +873,9 @@ impl ChatService {
         let mut tools = read_tools();
         if self.semantic.is_some() {
             tools.push(semantic_tool());
+        }
+        if self.library.is_some() {
+            tools.extend(library_agent::tool_defs());
         }
         tools.extend(proposal_tools());
         tools
@@ -1661,8 +1670,29 @@ impl ChatService {
     /// Exécute un outil ; les erreurs de l'utilisateur ou du modèle sont renvoyées au modèle
     /// sous forme de texte, les propositions sont mises de côté.
     pub fn run_tool(&self, name: Option<&str>, args: &Map<String, Value>, proposals: &mut Vec<ChatProposal>) -> Result<String> {
+        self.run_tool_logged(name, args, proposals, &mut ReadLog::default())
+    }
+
+    /// Comme [`Self::run_tool`] ; les passages de documents lus sont consignés dans `reads`
+    /// (vérification des citations).
+    pub fn run_tool_logged(
+        &self,
+        name: Option<&str>,
+        args: &Map<String, Value>,
+        proposals: &mut Vec<ChatProposal>,
+        reads: &mut ReadLog,
+    ) -> Result<String> {
         let name = name.unwrap_or("");
-        let output = match self.call_tool(name, args) {
+        let mut limit = MAX_RESULT_CHARS;
+        let library_call = self.library.as_ref().and_then(|library| library_agent::call(library, name, args, reads));
+        let output = match library_call {
+            Some(result) => {
+                limit = library_agent::MAX_RESULT_CHARS;
+                result.map(|r| r.map(ToolOutput::Data))
+            }
+            None => self.call_tool(name, args),
+        };
+        let output = match output {
             Ok(Ok(output)) => output,
             Ok(Err(message)) => return Ok(message),
             Err(err @ (Error::Vault(_) | Error::NotFound(_) | Error::Conflict { .. })) => return Ok(format!("Erreur : {err}")),
@@ -1686,7 +1716,7 @@ impl ChatService {
                 if empty {
                     Ok("Aucun résultat.".into())
                 } else {
-                    Ok(clip(&value.to_string(), MAX_RESULT_CHARS))
+                    Ok(clip(&value.to_string(), limit))
                 }
             }
         }
@@ -1722,6 +1752,7 @@ impl ChatService {
         let tools = self.tools();
         let mut steps: Vec<Value> = Vec::new();
         let mut proposals: Vec<ChatProposal> = Vec::new();
+        let mut reads = ReadLog::default();
         let mut answer = String::new();
         for turn in 0..=MAX_STEPS {
             // dernier tour : les outils restent décrits mais le modèle doit répondre
@@ -1746,7 +1777,7 @@ impl ChatService {
                 let name = call.function.name;
                 let (args, result) = match parse_arguments(&call.function.arguments) {
                     Ok(args) => {
-                        let result = self.run_tool(Some(&name), &args, &mut proposals)?;
+                        let result = self.run_tool_logged(Some(&name), &args, &mut proposals, &mut reads)?;
                         (Value::Object(args), result)
                     }
                     Err(message) => (Value::String(call.function.arguments), format!("Erreur : arguments invalides pour {name} ({message}).")),
@@ -1762,8 +1793,14 @@ impl ChatService {
         }
         let answer = Some(answer.trim().to_string()).filter(|a| !a.is_empty());
         let answer = answer.unwrap_or_else(|| "Je n'ai pas de réponse à proposer.".into());
+        let citations = match &self.library {
+            Some(library) => library_agent::citations(library, &answer, &reads, &|name| {
+                self.index.resolve_link(name).ok().flatten().is_some()
+            }),
+            None => Vec::new(),
+        };
         emit(json!({"type": "done", "links": self.links_of(&answer)?, "answer": answer, "steps": steps,
-                    "proposals": proposals}));
+                    "proposals": proposals, "citations": citations}));
         Ok(())
     }
 

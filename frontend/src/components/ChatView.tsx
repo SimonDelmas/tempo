@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { AccountCategory, api, CATEGORY_LABELS, ChatProposal, ChatStep, Config, Hours, Project, STATUS_LABELS,
+import { AccountCategory, api, CATEGORY_LABELS, ChatProposal, ChatStep, Citation, Config, Hours, Project, STATUS_LABELS,
   TYPE_LABELS } from "../api";
 import { ChatEntry, Conversation, LiveReply, ProposalState } from "../chats";
-import Markdown from "./Markdown";
+import Markdown, { citationTitle, openCitation } from "./Markdown";
 import { ProjectsSelect, useProjects } from "./ProjectSelect";
 
 type Props = {
@@ -301,7 +301,8 @@ export default function ChatView({ config, conversation, live, onSend, onReplace
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat-message ${m.role} ${m.error ? "error" : ""}`}>
-            {m.role === "user" ? <p>{m.content}</p> : <Markdown text={m.content} links={m.links ?? {}} onOpen={onOpen} />}
+            {m.role === "user" ? <p>{m.content}</p> : <Markdown text={m.content} links={m.links ?? {}} citations={m.citations} onOpen={onOpen} />}
+            {!!m.citations?.length && <Sources citations={m.citations} />}
             {!!m.proposals?.length && (
               <div className="proposal-list">
                 {m.proposals.map((item, j) => (
@@ -357,5 +358,28 @@ export default function ChatView({ config, conversation, live, onSend, onReplace
         </button>
       </div>
     </div>
+  );
+}
+
+/** Documents cités dans une réponse, avec le résultat de la vérification de chaque citation. */
+function Sources({ citations }: { citations: Citation[] }) {
+  const unverified = citations.filter((c) => !c.verified).length;
+  return (
+    <details className="chat-sources" open={unverified > 0}>
+      <summary>
+        Sources : {citations.length} passage(s) cité(s)
+        {unverified > 0 && <span className="unverified-count"> · {unverified} non vérifié(s)</span>}
+      </summary>
+      <ul>
+        {citations.map((c) => (
+          <li key={c.link} className={c.verified ? "" : "unverified"}>
+            <button className="link" title={citationTitle(c)} onClick={() => openCitation(c)}>
+              {c.verified ? "✓" : "⚠"} {[c.title, c.section, c.page ? `p. ${c.page}` : ""].filter(Boolean).join(" › ")}
+            </button>
+            {!c.verified && <span className="small"> — {c.reason}</span>}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

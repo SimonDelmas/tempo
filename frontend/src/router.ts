@@ -50,7 +50,8 @@ export function href(space: Space, path?: string | null, params?: Record<string,
 export const noteHref = (path: string) => href(spaceOf(path), path);
 
 /** adresse d'un document de la bibliothèque */
-export const documentHref = (id: string) => href("bibliotheque", null, { doc: id });
+export const documentHref = (id: string, at?: { page?: number | null; section?: string | null }) =>
+  href("bibliotheque", null, { doc: id, page: at?.page ? String(at.page) : null, section: at?.section ?? null });
 
 // Une vue avec une saisie non enregistrée peut bloquer la navigation interne.
 let leaveGuard: (() => boolean) | null = null;

@@ -1,14 +1,31 @@
 import { ReactNode } from "react";
+import { Citation } from "../api";
+import { documentHref, navigate } from "../router";
 
 /** Rendu Markdown minimal des réponses de l'agent : titres, listes, paragraphes, **gras**,
- *  `code` et liens [[…]] cliquables (sans HTML injecté). */
+ *  `code` et liens [[…]] cliquables (sans HTML injecté). Les liens vers des documents de la
+ *  bibliothèque ([[document#section]], [[document#p. 12]]) ouvrent le document au passage cité ;
+ *  une citation que le serveur n'a pas pu vérifier est signalée. */
 
 /** links : liens résolus en chemins ; null pendant la diffusion (pas encore résolus) */
-type Props = { text: string; links: Record<string, string> | null; onOpen: (path: string) => void };
+type Props = {
+  text: string;
+  links: Record<string, string> | null;
+  citations?: Citation[];
+  onOpen: (path: string) => void;
+};
 
-const INLINE_RE = /\*\*([^*]+)\*\*|`([^`]+)`|\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
+const INLINE_RE = /\*\*([^*]+)\*\*|`([^`]+)`|\[\[([^\]|#\n]+)(?:#([^\]|\n]*))?(?:\|([^\]\n]+))?\]\]/g;
 
-function inline(text: string, links: Props["links"], onOpen: Props["onOpen"]): ReactNode[] {
+/** infobulle d'une citation : document, passage, extrait, ou raison de l'échec de la vérification */
+export function citationTitle(c: Citation): string {
+  const where = [c.title, c.section, c.page ? `p. ${c.page}` : ""].filter(Boolean).join(" › ");
+  return c.verified ? `${where}\n« ${c.excerpt} »` : `Citation non vérifiée : ${c.reason}\n${where}`;
+}
+
+export const openCitation = (c: Citation) => navigate(documentHref(c.document, { page: c.page, section: c.section }));
+
+function inline(text: string, links: Props["links"], citations: Citation[], onOpen: Props["onOpen"]): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
   for (const m of text.matchAll(INLINE_RE)) {
@@ -18,12 +35,26 @@ function inline(text: string, links: Props["links"], onOpen: Props["onOpen"]): R
     else if (m[2] !== undefined) nodes.push(<code key={key}>{m[2]}</code>);
     else {
       const name = m[3].trim();
+      const anchor = m[4]?.trim();
+      const label = m[5] ?? (anchor ? `${name} › ${anchor}` : name);
+      const citation = citations.find((c) => c.link === (anchor ? `${name}#${anchor}` : name));
       const path = links?.[name];
-      nodes.push(path
-        ? <button key={key} className="wikilink" title={path} onClick={() => onOpen(path)}>{m[4] ?? name}</button>
-        : <span key={key} className={`wikilink ${links ? "missing" : ""}`} title={links ? "Note introuvable" : undefined}>
-          {m[4] ?? name}
-        </span>);
+      if (citation) {
+        nodes.push(
+          <button key={key} className={`wikilink citation ${citation.verified ? "" : "unverified"}`}
+            title={citationTitle(citation)} onClick={() => openCitation(citation)}>
+            {citation.verified ? "" : "⚠ "}{label}
+          </button>,
+        );
+      } else if (path) {
+        nodes.push(<button key={key} className="wikilink" title={path} onClick={() => onOpen(path)}>{label}</button>);
+      } else {
+        nodes.push(
+          <span key={key} className={`wikilink ${links ? "missing" : ""}`} title={links ? "Note introuvable" : undefined}>
+            {label}
+          </span>,
+        );
+      }
     }
     last = m.index + m[0].length;
   }
@@ -31,19 +62,20 @@ function inline(text: string, links: Props["links"], onOpen: Props["onOpen"]): R
   return nodes;
 }
 
-export default function Markdown({ text, links, onOpen }: Props) {
+export default function Markdown({ text, links, citations = [], onOpen }: Props) {
   const blocks: ReactNode[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
   let paragraph: string[] = [];
+  const render = (t: string) => inline(t, links, citations, onOpen);
 
   const flush = () => {
     const key = blocks.length;
     if (paragraph.length) {
-      blocks.push(<p key={key}>{inline(paragraph.join(" "), links, onOpen)}</p>);
+      blocks.push(<p key={key}>{render(paragraph.join(" "))}</p>);
       paragraph = [];
     }
     if (list) {
-      const items = list.items.map((item, i) => <li key={i}>{inline(item, links, onOpen)}</li>);
+      const items = list.items.map((item, i) => <li key={i}>{render(item)}</li>);
       blocks.push(list.ordered ? <ol key={`l${key}`}>{items}</ol> : <ul key={`l${key}`}>{items}</ul>);
       list = null;
     }
@@ -56,7 +88,7 @@ export default function Markdown({ text, links, onOpen }: Props) {
       flush();
     } else if (heading) {
       flush();
-      blocks.push(<h4 key={blocks.length} className="md-heading">{inline(heading[2], links, onOpen)}</h4>);
+      blocks.push(<h4 key={blocks.length} className="md-heading">{render(heading[2])}</h4>);
     } else if (item) {
       const ordered = item[2] !== undefined;
       if (paragraph.length || (list && list.ordered !== ordered)) flush();

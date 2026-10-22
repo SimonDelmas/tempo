@@ -17,6 +17,7 @@ pub mod inbox;
 pub mod index;
 pub mod journal;
 pub mod library;
+pub mod library_agent;
 pub mod llm;
 pub mod notes;
 pub mod prompts;

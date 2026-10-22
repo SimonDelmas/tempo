@@ -324,11 +324,24 @@ export type ChatProposal =
   | { kind: "inbox_apply"; path: string; proposal: Proposal }
   | { kind: "weekly_report"; date: string | null; week: string; extra: string }
   | { kind: "task_report"; task_id: string; title: string };
+/** citation d'un document dans une réponse ; verified : le passage existe et l'agent l'a lu */
+export type Citation = {
+  /** texte du lien : « document#section » ou « document#p. 12 » */
+  link: string;
+  document: string;
+  title: string;
+  section: string | null;
+  page: number | null;
+  verified: boolean;
+  reason: string | null;
+  excerpt: string;
+};
 export type ChatReply = {
   answer: string;
   steps: ChatStep[];
   links: Record<string, string>;
   proposals: ChatProposal[];
+  citations?: Citation[];
 };
 export type ChatEvent =
   | ({ type: "step" } & ChatStep)

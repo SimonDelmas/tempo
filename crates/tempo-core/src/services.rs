@@ -72,6 +72,7 @@ impl Services {
             reports: reports.clone(),
             imputations: imputations.clone(),
             drafts: drafts.clone(),
+            library: Some(library.clone()),
         };
         Ok(Arc::new(Services {
             assist: AssistService::new(vault.clone(), index.clone(), tasks.clone(), llm.clone(), settings.clone()),

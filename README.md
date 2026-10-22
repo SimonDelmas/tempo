@@ -76,7 +76,12 @@ http://localhost:5173.
   vault (recherche par mots ou par phrase, recherche exacte ou par expression régulière,
   recherche par nom de note ou par propriété du frontmatter — ex. les réunions où une personne
   était présente —, lecture de notes, liste et historique des tâches), cite ses sources en
-  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il peut proposer de créer ou
+  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il interroge aussi la bibliothèque :
+  recherche de passages, lecture d'une section, de pages ou d'un document court, liste par thème ou
+  projet ; chaque information tirée d'un document est citée (`[[document#section]]`,
+  `[[document#p. 12]]`) et la citation vérifiée (le passage existe et l'agent l'a lu) : un clic ouvre le
+  document au passage, l'extrait s'affiche au survol, une citation non vérifiée est marquée ⚠ et
+  la liste des sources figure sous la réponse. Il peut proposer de créer ou
   mettre à jour une tâche (statut, titre, projet, semaine), d'ajouter une ligne au journal, de
   créer, modifier (passages, ajout dans une section, propriétés du frontmatter) ou supprimer
   une note, et d'ajouter ou retirer des liens entre notes. Il consulte aussi le board, le

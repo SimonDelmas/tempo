@@ -117,13 +117,18 @@ function DocumentText({ text }: { text: string }) {
 
 type Props = {
   id: string;
+  /** passage à montrer (citation de l'agent) : page d'un PDF ou titre de section */
+  page?: string;
+  section?: string;
   revision: number;
   notify: Notify;
   onNavigate: LibraryNav;
 };
 
 /** Fiche d'un document : classement, texte converti, original (PDF) et actions. */
-export default function DocumentView({ id, revision, notify, onNavigate }: Props) {
+const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+export default function DocumentView({ id, page, section, revision, notify, onNavigate }: Props) {
   const [detail, setDetail] = useState<LibraryDetail | null>(null);
   const [missing, setMissing] = useState(false);
   const [tab, setTab] = useState<"texte" | "original">("texte");
@@ -141,6 +146,22 @@ export default function DocumentView({ id, revision, notify, onNavigate }: Props
   useEffect(() => { if (detail?.id === id && detail.format === "pdf") setTab("original"); }, [detail?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const outline = useMemo(() => outlineOf(detail?.content ?? ""), [detail?.content]);
+
+  // passage cité : la page dans le PDF d'origine, sinon le titre ou le marqueur de page dans le texte
+  useEffect(() => {
+    if (!detail || detail.id !== id || (!page && !section)) return;
+    if (page && detail.format === "pdf") { setTab("original"); return; }
+    setTab("texte");
+    const index = section ? outline.findIndex((e) => fold(e.title) === fold(section)) : -1;
+    const anchor = page ? `page-${page}` : index >= 0 ? `h-${index}` : null;
+    if (!anchor) return;
+    window.setTimeout(() => {
+      const target = document.getElementById(anchor);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.classList.add("flash");
+      window.setTimeout(() => target?.classList.remove("flash"), 1700);
+    }, 50);
+  }, [detail?.id, page, section]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (missing) return <div className="page"><p className="muted">Document introuvable : {id}</p></div>;
   if (!detail) return <div className="loading">Chargement…</div>;
@@ -243,7 +264,8 @@ export default function DocumentView({ id, revision, notify, onNavigate }: Props
       </div>
       {tab === "original" ? (
         detail.format === "pdf" || detail.format === "txt" || detail.format === "md"
-          ? <iframe className="source-frame" src={library.sourceUrl(id)} title={detail.title} />
+          ? <iframe className="source-frame" title={detail.title}
+            src={library.sourceUrl(id) + (page && detail.format === "pdf" ? `#page=${page}` : "")} />
           : (
             <p className="muted">
               Aperçu non disponible dans l'application pour ce format.{" "}

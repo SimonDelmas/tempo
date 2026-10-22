@@ -187,7 +187,10 @@ export default function LibraryView({ config, revision, params, onNavigate, noti
   const pick = () => input.current?.click();
 
   let content: ReactNode;
-  if (params.doc) content = <DocumentView id={params.doc} revision={revision} notify={notify} onNavigate={onNavigate} />;
+  if (params.doc) {
+    content = <DocumentView id={params.doc} page={params.page} section={params.section} revision={revision}
+      notify={notify} onNavigate={onNavigate} />;
+  }
   else if (params.vue === "a_classer") {
     content = <LibraryQueue config={config} revision={revision} notify={notify} onPickFiles={pick}
       onOpenDocument={(doc) => onNavigate({ doc })} />;

@@ -75,6 +75,7 @@ pub fn chat_deps(c: &Ctx, llm: Arc<dyn Llm>) -> ChatDeps {
         inbox: Arc::new(InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone())),
         imputations: Arc::new(ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm.clone(), settings.clone())),
         drafts: Arc::new(DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm, settings.clone())),
+        library: None,
         reports,
     }
 }

@@ -57,6 +57,8 @@ Pas de linter configuré (`cargo clippy` disponible).
   exclu de l'index des notes, index `library.db` rangé hors du vault, file « À classer », thèmes
   `themes/`) ; `convert/` : conversion en Markdown (pandoc, pdfium, pptx, calamine, mails, .doc/.ppt).
   Les tests de conversion pandoc / PDF sont sautés si les outils sont absents.
+  `library_agent.rs` : outils de l'agent sur la bibliothèque (`search_documents`, `read_document`,
+  `list_documents`) et vérification des citations `[[document#section]]` / `[[document#p. N]]`.
 - `notes.rs` : modifications ciblées d'une note (passages, sections, frontmatter, liens),
   utilisées par les propositions du chat.
 - `de.rs` : désérialiseurs tolérants pour les réponses du modèle (équivalent des validateurs

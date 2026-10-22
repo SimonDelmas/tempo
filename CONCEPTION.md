@@ -259,7 +259,7 @@ modèle), les tâches citent la note (`créée depuis [[…]]`), la note les lis
 
 ## Chat
 
-Agent en boucle d'outils (8 tours au plus) par le tool calling natif de l'API OpenAI
+Agent en boucle d'outils (10 tours au plus) par le tool calling natif de l'API OpenAI
 (`tools`, `tool_calls`, messages `tool`), géré par Vibe y compris en streaming : à chaque tour
 le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour,
 `tool_choice: none` le force à répondre. Chaque outil est décrit par un schéma JSON dont les
@@ -268,7 +268,8 @@ le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour
 `grep_notes` (texte exact ou regex, ligne par ligne, frontmatter compris : sert aussi à
 retrouver un passage avant `propose_note_edit`), `find_notes` (morceau du nom ou du titre,
 type, valeurs du frontmatter y compris dans les listes, sans casse ni accents),
-`read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`, `semantic_search` (si
+`read_note`, `list_notes`, `list_tasks`, `get_task`, `task_events`, les outils de la
+bibliothèque (`search_documents`, `read_document`, `list_documents`, voir Bibliothèque), `semantic_search` (si
 les embeddings sont actifs) ; `read_note` donne aussi les liens sortants et entrants. La
 recherche exacte se fait dans le code (`Index::grep`, `regex`), sans outil externe type
 ripgrep : un vault reste assez petit pour être parcouru à chaque appel. Les modèles
@@ -411,12 +412,31 @@ par document avec son extrait le plus pertinent.
 texte converti, le PDF affiché dans l'application (`GET /api/library/docs/{id}/source`) et
 « Ouvrir » avec l'application par défaut du poste (`POST /api/library/docs/{id}/open`).
 
+**Agent** (`library_agent.rs`, outils ajoutés au chat existant) :
+- `search_documents` : passages (3 au plus par document, 10 en tout) avec document, section,
+  page, texte et citation prête à reprendre ; filtres thème, projet, tag, format ; sans passage
+  contenant tous les mots, la recherche est élargie à l'un des mots (signalé au modèle) ;
+- `read_document` : sans section ni pages, le texte entier s'il fait moins de 40 000 caractères
+  (environ 10 000 tokens), sinon le résumé et la table des matières (taille et page de chaque
+  section) sans texte ; avec `section` (titre, sous-sections comprises, sans casse ni accents)
+  ou `pages` (`3-5`, documents PDF), cette partie, par tranches de 30 000 caractères (`offset`
+  pour la suite). Le document entier n'est donc lu que lorsqu'il est court ou que l'agent le
+  parcourt section par section ;
+- `list_documents` : documents filtrés (thème, projet, tag, format, mots, dates d'ajout) et
+  thèmes existants.
+
+**Citations vérifiées** : l'agent cite `[[document#section]]` ou `[[document#p. N]]` (champ
+`citation` des outils). Chaque passage renvoyé par `search_documents` ou `read_document` est
+consigné pendant la réponse ; à la fin, chaque citation de document est vérifiée dans le code :
+le document existe, la section ou la page aussi, et l'agent a lu ce passage (passage trouvé,
+section ou pages lues, ou document lu en entier). La réponse (`done`) porte `citations` : lien,
+document, section, page, `verified`, raison de l'échec (« passage non consulté par l'agent »,
+« section introuvable dans le document », « page absente du document ») et extrait. Le chat
+affiche les citations comme des liens (extrait au survol, ⚠ si non vérifiée) et la liste des
+sources sous la réponse ; un clic ouvre la fiche au passage (`#/bibliotheque?doc=…&section=…`
+ou `&page=…` : PDF ouvert à la page, sinon section ou page du texte surlignée).
+
 **Lots suivants** :
-- outils de l'agent, dans le chat existant : `search` (passages avec document, section ou
-  page), `read_document` (texte entier sous un seuil d'environ 25 000 tokens, sinon résumé et
-  table des matières puis lecture par section ou par pages), `list_documents` (thèmes,
-  projets, tags, format, dates) ; citations « document › section » ou « document, p. 12 »,
-  vérifiées dans le code (chaque passage cité a été lu par l'agent) ;
 - embeddings locaux (multilingual-e5-small quantifié, ONNX, livré avec l'installeur, chargé à
   la demande) et fusion RRF avec la recherche plein texte ; pas de reranker pour l'instant ;
 - synthèses multi-documents enregistrées comme notes, documents choisis par l'agent (écart
@@ -455,7 +475,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
   note proposée par le Draft et par le chat
 - [x] Bibliothèque (lot 1) : dépôt de documents, conversion en Markdown pivot, file « À classer »
   (thèmes, projets, tags, résumé proposés puis validés), vue par thème ou projet, recherche
-- [ ] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
+- [x] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
 - [ ] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
 - [ ] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude
