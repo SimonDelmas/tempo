@@ -122,6 +122,20 @@ impl TestApp {
         Reply { status, text: String::from_utf8_lossy(&bytes).into_owned() }
     }
 
+    /// Requête au corps brut (dépôt de fichier) ; renvoie aussi les en-têtes.
+    pub async fn call_raw(&self, method: Method, uri: &str, body: Vec<u8>) -> (Reply, axum::http::HeaderMap) {
+        let request = Request::builder().method(method).uri(uri).body(Body::from(body)).unwrap();
+        let response = self.app.clone().oneshot(request).await.unwrap();
+        let (status, headers) = (response.status(), response.headers().clone());
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (Reply { status, text: String::from_utf8_lossy(&bytes).into_owned() }, headers)
+    }
+
+    /// Dépose un fichier dans la bibliothèque.
+    pub async fn upload(&self, name: &str, bytes: &[u8]) -> Reply {
+        self.call_raw(Method::POST, &format!("/api/library/upload?name={}", q(name)), bytes.to_vec()).await.0
+    }
+
     pub async fn get(&self, uri: &str) -> Reply {
         self.call(Method::GET, uri, None).await
     }

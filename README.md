@@ -18,8 +18,13 @@ Application de bureau (installeur Windows NSIS / MSI) :
 
 ```bash
 cd frontend && npm install && cd ..
+powershell -ExecutionPolicy Bypass -File scripts/telecharger-outils.ps1
 cd src-tauri && cargo tauri build
 ```
+
+Le script télécharge dans `src-tauri/resources/` les outils de conversion de la bibliothèque
+(`pandoc.exe`, `pdfium.dll`), livrés avec l'installeur ; en développement, ils y sont aussi
+cherchés (puis dans le PATH).
 
 Les installeurs sont produits dans `target/release/bundle/nsis/` et `target/release/bundle/msi/`
 (installation par utilisateur, sans droits administrateur pour la version NSIS). Au premier
@@ -55,7 +60,7 @@ http://localhost:5173.
 ## Utilisation
 
 - **Navigation** : la barre de gauche donne accès aux espaces Notes, Tâches, Rapports,
-  Imputations, Inbox et Draft (Alt+1…6), chacun avec sa propre barre latérale. Chaque page a son
+  Imputations, Inbox, Draft et Bibliothèque (Alt+1…7), chacun avec sa propre barre latérale. Chaque page a son
   adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
   arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
@@ -137,6 +142,19 @@ http://localhost:5173.
   transformer le brouillon en note (type, titre, projets et contenu mis en forme) et/ou en tâches
   (doublons de tâches ouvertes signalés) ; après ajustement, « Créer » écrit la note et les
   tâches (reliées entre elles) puis ferme le brouillon si la case est cochée.
+- **Bibliothèque** : base de documents (PDF, Word, PowerPoint, Excel, mails .eml / .msg, HTML,
+  Markdown, y compris les .doc / .ppt d'Office 97-2003). Glisser des fichiers depuis l'explorateur
+  (ou « Ajouter des fichiers… ») les convertit en Markdown et les place dans la file « À classer » :
+  l'IA y propose titre, résumé, thèmes (existants, ou nouveaux thèmes à créer d'un clic), projets et
+  tags, à corriger puis valider document par document ou en masse. Un fichier déjà présent est
+  refusé ; un fichier du même nom est proposé comme nouvelle version (l'ancienne part dans
+  `.trash/`) ; les pièces jointes d'un mail deviennent des documents reliés ; un fichier copié à la
+  main dans le dossier est proposé à l'ajout. Les documents se parcourent par thème ou par projet
+  et se recherchent par titre, mot-clé ou tag (extrait, section et page). La fiche montre le texte
+  converti (sommaire), le PDF d'origine, et permet d'ouvrir le fichier, de modifier le classement
+  ou de reconvertir. Un lien `[[nom du document]]` dans une note ouvre sa fiche. Dossier :
+  `<vault>/bibliotheque/` (`TEMPO_LIBRARY`), pivots `<nom>.md` et fichiers d'origine dans
+  `sources/` ; les thèmes sont des notes de `themes/`.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;
   « Copier pour email » retire les liens sources.
 - **Imputations** : comptes d'imputation (nom, alias, type, jours attribués, description

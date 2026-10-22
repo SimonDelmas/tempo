@@ -5,6 +5,7 @@ import { api, ApiError, Config, Note, NoteSummary, STATUS_LABELS, TaskDraft, Tex
 import { ExtractTasksDialog, TEXT_ACTION_LABELS, TextResultDialog } from "./EditorAssist";
 import MarkdownEditor from "./MarkdownEditor";
 import ProjectSelect, { useProjects } from "./ProjectSelect";
+import { documentHref, navigate } from "../router";
 
 const PREVIEW_KEY = "tempo.livePreview";
 
@@ -114,7 +115,9 @@ export default function EditorPane({ path, files, config, revision, onOpen, noti
 
   const openLink = async (name: string) => {
     try {
-      onOpen((await api.resolve(name)).path);
+      const target = await api.resolve(name);
+      if (target.path) onOpen(target.path);
+      else if (target.document) navigate(documentHref(target.document));
     } catch {
       notify(`Aucune note ne correspond à « ${name} »`, true);
     }

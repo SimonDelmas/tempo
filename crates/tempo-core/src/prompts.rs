@@ -201,3 +201,30 @@ pub const TEXT_ACTIONS:[(&str, &str); 3] = [
 pub const TEXT_SYSTEM: &str = r#"Tu aides l'utilisateur à rédiger ses notes Markdown. Tu réponds uniquement avec le
 texte demandé, en Markdown simple et en français, sans introduction ni conclusion. Conserve tels
 quels les liens [[…]] présents dans le texte."#;
+
+pub const LIBRARY_CLASSIFY_SYSTEM: &str = r#"Tu aides l'utilisateur (un salarié de Suez) à classer un document qu'il vient
+d'ajouter à sa bibliothèque. Tu reçois les thèmes et les projets existants, les tags déjà utilisés,
+puis le début du document (texte converti, éventuellement tronqué) et ses titres.
+
+Tu réponds UNIQUEMENT avec un objet json de la forme :
+
+{
+  "title": "titre explicite du document, dans sa langue",
+  "summary": "résumé factuel de 2 à 4 phrases, en français : de quoi traite le document, pour qui, ce qu'il décide ou décrit",
+  "themes": ["identifiant-theme", ...],
+  "new_themes": ["Nom d'un thème à créer", ...],
+  "projects": ["identifiant-projet", ...],
+  "tags": ["tag", ...]
+}
+
+Règles :
+- "themes" : un à trois identifiants pris dans la liste des thèmes existants, ceux dont le document
+  traite vraiment. N'invente pas d'identifiant.
+- "new_themes" : seulement si aucun thème existant ne convient, un ou deux noms courts de thèmes
+  larges et réutilisables (pas le sujet précis du document) ; [] sinon.
+- "projects" : les identifiants des projets fournis auxquels le document se rattache clairement ; [] sinon.
+- "tags" : trois à six mots-clés en minuscules, sans #, des mots composés reliés par des tirets.
+  Reprends de préférence des tags déjà utilisés ; ajoute le type de document (specification,
+  compte-rendu, procedure, contrat, presentation…) quand il est évident.
+- Le titre reprend celui du document s'il en a un clair ; sinon formule-le à partir du contenu.
+- Ne te fie qu'au texte fourni, n'invente rien."#;

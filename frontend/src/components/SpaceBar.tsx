@@ -16,6 +16,7 @@ const ICONS: Record<Space, string> = {
   imputations: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M12 7v5l3 2",
   inbox: "M3 13l3-8h12l3 8v6H3z M3 13h5l1 3h6l1-3h5",
   brouillons: "M4 20h4l11-11-4-4L4 16z M13 7l4 4 M4 20h16",
+  bibliotheque: "M4 4h4v16H4z M10 4h4v16h-4z M15.5 5.5l3.8-1.2 3.4 14.4-3.8 1.2z M4 8h4 M10 8h4",
 };
 
 export default function SpaceBar({ current, badges, busy = {}, shortcuts, onSelect }: Props) {

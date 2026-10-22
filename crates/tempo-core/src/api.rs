@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::body::Body;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -20,6 +20,7 @@ use crate::drafts::DraftProposal;
 use crate::error::{vault_err, Error, Result};
 use crate::imputations::Hours;
 use crate::inbox::InboxProposal;
+use crate::library::{DocumentMeta, LibraryFilter, MAX_UPLOAD_BYTES};
 use crate::services::Services;
 use crate::tasks::{NewTask, PRIORITIES, STATUSES};
 use crate::util::{date_or_today, parse_date, today};
@@ -248,6 +249,29 @@ struct ChatRequest {
 }
 
 #[derive(Deserialize)]
+struct UploadParam {
+    /// nom du fichier déposé (son extension donne le format)
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct IngestPath {
+    path: String,
+}
+
+#[derive(Deserialize)]
+struct RevealParam {
+    /// montre le fichier dans l'explorateur au lieu de l'ouvrir
+    #[serde(default)]
+    reveal: bool,
+}
+
+#[derive(Deserialize)]
+struct ThemeCreate {
+    title: String,
+}
+
+#[derive(Deserialize)]
 struct WeekHours {
     date: String,
     #[serde(default)]
@@ -313,6 +337,21 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/drafts/{id}", put(save_draft).delete(delete_draft))
         .route("/api/drafts/{id}/analyze", post(analyze_draft))
         .route("/api/drafts/{id}/apply", post(apply_draft))
+        // bibliothèque de documents
+        .route("/api/library", get(library_list))
+        .route("/api/library/queue", get(library_queue))
+        .route(
+            "/api/library/upload",
+            post(library_upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 1024 * 1024)),
+        )
+        .route("/api/library/ingest", post(library_ingest))
+        .route("/api/library/docs/{id}", get(library_doc).put(library_update).delete(library_delete))
+        .route("/api/library/docs/{id}/classify", post(library_classify))
+        .route("/api/library/docs/{id}/reconvert", post(library_reconvert))
+        .route("/api/library/docs/{id}/open", post(library_open))
+        .route("/api/library/docs/{id}/source", get(library_source))
+        .route("/api/themes", get(list_themes).post(create_theme))
+        .route("/api/tags", get(list_tags))
         // chat
         .route("/api/chat", post(chat))
         .route("/api/chat/stream", post(chat_stream))
@@ -380,13 +419,19 @@ async fn get_config(State(s): State<AppState>) -> ApiResult {
         "model_fast": s.settings.model_fast, "model_smart": s.settings.model_smart,
         "statuses": STATUSES, "priorities": PRIORITIES, "semantic_enabled": s.semantic.enabled(),
         "shortcuts": {"back": s.settings.shortcut_back, "forward": s.settings.shortcut_forward},
+        "library": {
+            "dir": s.library.root.to_string_lossy(), "formats": crate::convert::FORMATS,
+            "max_upload": MAX_UPLOAD_BYTES, "pandoc": s.library.tools().pandoc.is_some(),
+            "pdfium": s.library.tools().pdfium.is_some(),
+        },
     })))
 }
 
 async fn get_state(State(s): State<AppState>) -> ApiResult {
     blocking(move || {
         Ok(json!({"revision": s.index.revision(), "inbox": s.inbox.list()?.len(),
-                  "imputation_missing": s.imputations.missing_days(today())?}))
+                  "imputation_missing": s.imputations.missing_days(today())?,
+                  "library": s.library.pending_count()?}))
     })
     .await
 }
@@ -438,7 +483,11 @@ async fn search(State(s): State<AppState>, Query(q): Query<SearchParam>) -> ApiR
 async fn resolve(State(s): State<AppState>, Query(q): Query<NameParam>) -> ApiResult {
     blocking(move || match s.index.resolve_link(&q.name)? {
         Some(path) => Ok(json!({"path": path})),
-        None => Err(Error::NotFound(format!("Aucune note ne correspond à « {} »", q.name))),
+        // un lien [[…]] peut aussi désigner un document de la bibliothèque
+        None => match s.library.resolve(&q.name)? {
+            Some(id) => Ok(json!({"path": null, "document": id})),
+            None => Err(Error::NotFound(format!("Aucune note ne correspond à « {} »", q.name))),
+        },
     })
     .await
 }
@@ -677,6 +726,103 @@ async fn analyze_draft(State(s): State<AppState>, Path(id): Path<String>) -> Api
 
 async fn apply_draft(State(s): State<AppState>, Path(id): Path<String>, JsonBody(body): JsonBody<DraftApply>) -> ApiResult {
     blocking(move || s.drafts.apply(&id, &body.proposal, body.close)).await
+}
+
+// --- bibliothèque de documents -----------------------------------------------------
+
+async fn library_list(State(s): State<AppState>, Query(filter): Query<LibraryFilter>) -> ApiResult {
+    blocking(move || s.library.list(&filter)).await
+}
+
+async fn library_queue(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.library.queue()).await
+}
+
+/// Dépôt d'un fichier : corps brut de la requête, nom dans l'adresse.
+async fn library_upload(State(s): State<AppState>, Query(q): Query<UploadParam>, body: bytes::Bytes) -> ApiResult {
+    blocking(move || s.library.ingest(&q.name, &body)).await
+}
+
+async fn library_ingest(State(s): State<AppState>, JsonBody(body): JsonBody<IngestPath>) -> ApiResult {
+    blocking(move || s.library.ingest_path(&body.path)).await
+}
+
+async fn library_doc(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || s.library.detail(&id)).await
+}
+
+async fn library_update(State(s): State<AppState>, Path(id): Path<String>, JsonBody(body): JsonBody<DocumentMeta>) -> ApiResult {
+    blocking(move || s.library.update(&id, &body)).await
+}
+
+async fn library_delete(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || {
+        s.library.delete(&id)?;
+        Ok(json!({"ok": true}))
+    })
+    .await
+}
+
+async fn library_classify(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || s.library.classify(&id)).await
+}
+
+async fn library_reconvert(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult {
+    blocking(move || s.library.reconvert(&id)).await
+}
+
+async fn library_open(State(s): State<AppState>, Path(id): Path<String>, Query(q): Query<RevealParam>) -> ApiResult {
+    blocking(move || {
+        s.library.open(&id, q.reveal)?;
+        Ok(json!({"ok": true}))
+    })
+    .await
+}
+
+/// Nom de fichier encodé pour l'en-tête `Content-Disposition` (RFC 5987).
+fn encode_filename(name: &str) -> String {
+    name.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Fichier d'origine. Seuls les PDF et les textes s'affichent dans l'application ; les autres
+/// formats (HTML compris, qui s'exécuterait sur l'origine de l'API) sont proposés au
+/// téléchargement.
+async fn library_source(State(s): State<AppState>, Path(id): Path<String>) -> Result<Response> {
+    let (bytes, path, format) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let (path, document) = s.library.source(&id)?;
+        Ok((std::fs::read(&path)?, path, document.format))
+    })
+    .await
+    .map_err(|e| Error::Internal(format!("Traitement interrompu : {e}")))??;
+    let (mime, disposition) = match format.as_str() {
+        "pdf" => ("application/pdf", "inline"),
+        "txt" | "md" => ("text/plain; charset=utf-8", "inline"),
+        _ => ("application/octet-stream", "attachment"),
+    };
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, mime)
+        .header(header::CONTENT_DISPOSITION, format!("{disposition}; filename*=UTF-8''{}", encode_filename(&name)))
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(bytes))
+        .unwrap())
+}
+
+async fn list_themes(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.library.themes()).await
+}
+
+async fn create_theme(State(s): State<AppState>, JsonBody(body): JsonBody<ThemeCreate>) -> ApiResult {
+    blocking(move || s.library.create_theme(&body.title)).await
+}
+
+async fn list_tags(State(s): State<AppState>) -> ApiResult {
+    blocking(move || s.library.tags()).await
 }
 
 // --- chat ----------------------------------------------------------------------

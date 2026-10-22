@@ -6,6 +6,7 @@ import DraftsView from "./components/DraftsView";
 import EditorPane, { EditorActions } from "./components/EditorPane";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
+import LibraryView, { LibrarySidebar } from "./components/LibraryView";
 import NotesHome from "./components/NotesHome";
 import NotesSidebar from "./components/NotesSidebar";
 import QuickOpen from "./components/QuickOpen";
@@ -35,6 +36,7 @@ export default function App() {
   const [revision, setRevision] = useState(0);
   const [inboxCount, setInboxCount] = useState(0);
   const [imputationMissing, setImputationMissing] = useState(0);
+  const [libraryPending, setLibraryPending] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const lastRevision = useRef(-1);
@@ -68,6 +70,7 @@ export default function App() {
       const state = await api.state();
       setInboxCount(state.inbox);
       setImputationMissing(state.imputation_missing);
+      setLibraryPending(state.library);
       if (state.revision !== lastRevision.current) {
         lastRevision.current = state.revision;
         setFiles(await api.files());
@@ -170,6 +173,11 @@ export default function App() {
   const tasksNav = (changes: { vue?: TasksTab; semaine?: string | null; projet?: string | null }) =>
     navigate(href("taches", null, { vue: params.vue, semaine: params.semaine, projet: params.projet, ...changes }));
 
+  /** espace Bibliothèque : document ouvert, vue, filtres et regroupement portés par l'adresse */
+  const libraryNav = (changes: Record<string, string | null>) => navigate(href("bibliotheque", null, {
+    doc: params.doc, vue: params.vue, theme: params.theme, projet: params.projet, tag: params.tag, par: params.par, ...changes,
+  }));
+
   const sidebar = {
     notes: <NotesSidebar files={files} current={path} semantic={config.semantic_enabled} onOpen={open}
       notify={notify} />,
@@ -180,6 +188,7 @@ export default function App() {
       onOpen={open} onWeek={(date) => navigate(href("imputations", null, { date }))} />,
     inbox: null,
     brouillons: null,
+    bibliotheque: <LibrarySidebar revision={revision} params={params} pending={libraryPending} onNavigate={libraryNav} />,
   }[space];
 
   const home = {
@@ -192,12 +201,13 @@ export default function App() {
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
     brouillons: <DraftsView config={config} files={files} current={params.d ?? null}
       onSelect={(d) => navigate(href("brouillons", null, { d }))} onOpen={open} notify={notify} />,
+    bibliotheque: <LibraryView config={config} revision={revision} params={params} onNavigate={libraryNav} notify={notify} />,
   }[space];
 
   return (
     <div className="app">
       <SpaceBar current={space} onSelect={selectSpace} shortcuts={config.shortcuts}
-        badges={{ inbox: inboxCount, imputations: imputationMissing }} />
+        badges={{ inbox: inboxCount, imputations: imputationMissing, bibliotheque: libraryPending }} />
       {sidebar}
 
       <main>

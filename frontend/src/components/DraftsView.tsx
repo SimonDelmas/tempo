@@ -3,6 +3,7 @@ import { api, Config, Draft, DraftProposal, drafts as draftsApi, NOTE_KINDS, Not
   TYPE_LABELS } from "../api";
 import MarkdownEditor from "./MarkdownEditor";
 import ProjectSelect, { ProjectsSelect, useProjects } from "./ProjectSelect";
+import { documentHref, navigate } from "../router";
 
 type Props = {
   config: Config;
@@ -195,7 +196,9 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
             </div>
             <MarkdownEditor key={active.id} initial={active.content} files={files} preview
               onChange={(content) => edit(active.id, { content })}
-              onOpenLink={(name) => api.resolve(name).then((r) => onOpen(r.path)).catch((e) => notify(e.message, true))}
+              onOpenLink={(name) => api.resolve(name)
+                .then((r) => r.path ? onOpen(r.path) : r.document && navigate(documentHref(r.document)))
+                .catch((e) => notify(e.message, true))}
               onCreateTask={async (title) => (await api.createTask({ title })).id} />
           </div>
 

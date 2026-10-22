@@ -36,6 +36,8 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    reports.rs  rapport hebdo (4 sections) et rapport d'avancement de tâche
    imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition, périodes de saisie
    semantic.rs embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
+   library.rs  bibliothèque de documents : ingestion, file « À classer », thèmes, index (library.db), recherche
+   convert/    conversion des documents en Markdown pivot (pandoc, pdfium, pptx, tableurs, mails, .doc / .ppt)
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
    drafts.rs   brouillons (.brouillons/, hors index) → proposition de note et de tâches
    chat.rs     agent : outils de consultation et de proposition, réponses citées et diffusées (SSE)
@@ -79,6 +81,8 @@ reunions/AAAA/       AAAA-MM-JJ-sujet.md
 echanges/AAAA/MM/    échanges traités (résumé + texte original)
 taches/              T-XXX-titre.md
 projets/  sujets/  personnes/  ressources/  formations/
+themes/              <slug>.md (thèmes des documents de la bibliothèque)
+bibliotheque/        documents : pivots Markdown + sources/ (dossier configurable, hors index des notes)
 rapports/hebdo/      AAAA-Sxx.md
 rapports/taches/     T-XXX-AAAA-MM-JJ.md
 comptes/             <alias>.md (comptes d'imputation)
@@ -315,6 +319,109 @@ Chaque note (hors modèles et inbox) est découpée en passages d'environ 1 200 
 n'est revectorisée que si son hash change, et un changement de modèle repart de zéro.
 Usages : recherche par le sens, notes proches non liées (panneau de droite), outil du chat.
 
+## Bibliothèque
+
+Base documentaire gérée par l'application : les documents y sont ajoutés explicitement
+(glisser-déposer depuis l'explorateur, bouton « Ajouter »), convertis en Markdown (format
+pivot), classés par thèmes, projets et tags après validation, puis indexés. Volume visé :
+moins d'un millier de documents, en français et en anglais, de 40 Mo au plus.
+
+**Dossier** : `TEMPO_LIBRARY`, `<vault>/bibliotheque/` par défaut. Il est exclu de l'index et
+de la surveillance des notes : ses documents ne sont ni des notes, ni des résultats de la
+recherche des notes ou de `search_notes` ; la bibliothèque a son propre index.
+
+```
+bibliotheque/
+  <nom>.md             pivot : frontmatter (classement, source) + texte converti
+  sources/<nom>.<ext>  fichier d'origine, toujours conservé
+  .trash/              documents supprimés ou remplacés (horodatés, récupérables)
+```
+
+`<nom>` vient du nom du fichier d'origine (caractères interdits remplacés, comme pour les
+notes) : c'est l'identifiant du document dans l'API et dans les liens `[[<nom>]]` des notes.
+Frontmatter du pivot :
+
+```yaml
+type: document
+title: Spécification de l'interface SAP
+themes: [interfaces]        # notes de themes/
+projects: [sap]             # notes de projets/
+tags: [specification]       # partagés avec les notes
+summary: Décrit les flux d'articles entre…
+source: sources/Spec interface SAP.docx
+format: docx
+source_hash: 3f2a9c…        # détection des doublons
+pages: 42                   # pages d'un PDF, diapositives d'une présentation
+added: 2026-10-22
+attached_to: '[[Mail du 12 octobre]]'   # pièce jointe d'un mail (facultatif)
+status: a_classer           # tant que le classement n'est pas validé
+```
+
+Le frontmatter porte tout ce que l'utilisateur a saisi ou validé ; le corps se régénère à
+partir de la source (« Reconvertir », après une amélioration d'un convertisseur) sans toucher
+au frontmatter. Le classement proposé par le LLM n'est écrit qu'après validation.
+
+**Thèmes** : notes `themes/<slug>.md` (`type: theme`, `title`), gérées comme les projets :
+`GET /api/themes`, `POST /api/themes` (`{title}`), liste déroulante avec « Nouveau thème… ».
+Un document a plusieurs thèmes et plusieurs projets (ceux de `projets/`). `GET /api/tags`
+liste les tags des notes et des documents, des plus fréquents aux plus rares.
+
+**Conversion** (`convert/`), sans Python ni Office :
+
+| Format | Conversion |
+|---|---|
+| md, txt | lu tel quel (frontmatter d'un Markdown retiré) |
+| docx, odt, rtf, html, epub | pandoc (`TEMPO_PANDOC`, sinon livré avec l'application, sinon le PATH) |
+| pptx | lecture du zip : `## Diapositive N — titre`, tableaux, notes de l'orateur |
+| xlsx, xlsm, xls, ods | calamine : une section par feuille, tableaux Markdown (lignes limitées) |
+| pdf | pdfium (`pdfium.dll` : `TEMPO_PDFIUM`, sinon livrée avec l'application) : texte page par page, marqueurs `<!-- page N -->` |
+| eml, msg | en-têtes et corps (HTML converti par pandoc) ; les pièces jointes deviennent des documents à classer reliés au mail (`attached_to`) |
+| doc, ppt | texte extrait des fichiers OLE (crate `cfb`) : paragraphes, une section par diapositive |
+
+Images et schémas sont perdus ; les PDF scannés (sans texte) ne sont pas gérés (pas d'OCR).
+
+**Ingestion** : `POST /api/library/upload?name=<fichier>` (corps brut, 100 Mo au plus) range
+la source dans `sources/`, la convertit et crée le pivot `status: a_classer` ; un fichier
+identique (même `source_hash`) est refusé. Un fichier copié à la main dans le dossier, sans
+pivot qui le désigne, est listé dans la file et proposé à l'ingestion
+(`POST /api/library/ingest`, `{path}` : il est alors déplacé dans `sources/`).
+
+**File « À classer »** (`GET /api/library/queue`) : pour chaque document, le LLM
+(`TEMPO_MODEL_CLASSIFY`, modèle rapide par défaut) propose titre, résumé, thèmes (parmi les
+thèmes existants, plus des nouveaux thèmes suggérés), projets (existants seulement) et tags
+(les existants de préférence), à partir du début du texte et de ses titres
+(`POST /api/library/docs/{id}/classify`, sans écriture). L'utilisateur corrige puis valide,
+document par document ou en masse (`PUT /api/library/docs/{id}`) : le frontmatter est écrit et
+`status` retiré ; le même appel modifie plus tard le classement d'un document.
+**Remplacement** : un dépôt dont le nom existe déjà crée un document `<nom> (2)`, proposé en
+remplacement de `<nom>` (ou d'un autre document choisi sur la carte) ; validé, il en prend la
+place sous le même nom (les liens restent valides) et l'ancienne source comme l'ancien pivot
+partent dans `.trash/`.
+
+**Index** (`library.db`) : cache reconstructible rangé hors du vault synchronisé, dans
+`%LOCALAPPDATA%\Tempo\cache\<empreinte du dossier>\` (un fichier SQLite de cette taille réécrit
+à chaque ingestion se synchronise mal). Il contient les documents (classement), leurs passages
+(1 500 caractères environ, coupés aux titres de section, avec la section et la page de chacun)
+et un index FTS5 sur les passages et sur la fiche (titre, tags, résumé). Il est mis à jour au
+démarrage (seuls les pivots modifiés, par hash) et par un watcher du dossier. Recherche de la
+vue (`GET /api/library?q=&theme=&project=&tag=&format=`) : titre, mots-clés et tags, un résultat
+par document avec son extrait le plus pertinent.
+
+**Consultation** : documents classés par thème ou par projet ; fiche du document avec le
+texte converti, le PDF affiché dans l'application (`GET /api/library/docs/{id}/source`) et
+« Ouvrir » avec l'application par défaut du poste (`POST /api/library/docs/{id}/open`).
+
+**Lots suivants** :
+- outils de l'agent, dans le chat existant : `search` (passages avec document, section ou
+  page), `read_document` (texte entier sous un seuil d'environ 25 000 tokens, sinon résumé et
+  table des matières puis lecture par section ou par pages), `list_documents` (thèmes,
+  projets, tags, format, dates) ; citations « document › section » ou « document, p. 12 »,
+  vérifiées dans le code (chaque passage cité a été lu par l'agent) ;
+- embeddings locaux (multilingual-e5-small quantifié, ONNX, livré avec l'installeur, chargé à
+  la demande) et fusion RRF avec la recherche plein texte ; pas de reranker pour l'instant ;
+- synthèses multi-documents enregistrées comme notes, documents choisis par l'agent (écart
+  assumé au principe 3) et note validée par la carte de proposition du chat.
+
 ## Modèles
 
 `TEMPO_MODEL_FAST` (classification, analyse simple) et `TEMPO_MODEL_SMART` (rédaction des
@@ -346,4 +453,9 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Chat dans un panneau latéral droit accessible depuis tous les espaces (réductible, redimensionnable, Alt+C)
 - [x] Projets d'une note à sa création (clé `projects` du frontmatter) : « + Nouvelle note »,
   note proposée par le Draft et par le chat
+- [x] Bibliothèque (lot 1) : dépôt de documents, conversion en Markdown pivot, file « À classer »
+  (thèmes, projets, tags, résumé proposés puis validés), vue par thème ou projet, recherche
+- [ ] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
+- [ ] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
+- [ ] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

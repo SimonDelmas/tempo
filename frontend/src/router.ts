@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Espaces de l'application, chacun avec sa barre latérale et son adresse (#/taches/…). */
-export type Space = "notes" | "taches" | "rapports" | "imputations" | "inbox" | "brouillons";
+export type Space = "notes" | "taches" | "rapports" | "imputations" | "inbox" | "brouillons" | "bibliotheque";
 
 export const SPACES: { id: Space; label: string }[] = [
   { id: "notes", label: "Notes" },
@@ -10,6 +10,7 @@ export const SPACES: { id: Space; label: string }[] = [
   { id: "imputations", label: "Imputations" },
   { id: "inbox", label: "Inbox" },
   { id: "brouillons", label: "Draft" },
+  { id: "bibliotheque", label: "Bibliothèque" },
 ];
 
 export const DEFAULT_SPACE: Space = "taches";
@@ -47,6 +48,9 @@ export function href(space: Space, path?: string | null, params?: Record<string,
 
 /** adresse d'une note : elle s'ouvre dans l'espace auquel appartient son dossier */
 export const noteHref = (path: string) => href(spaceOf(path), path);
+
+/** adresse d'un document de la bibliothèque */
+export const documentHref = (id: string) => href("bibliotheque", null, { doc: id });
 
 // Une vue avec une saisie non enregistrée peut bloquer la navigation interne.
 let leaveGuard: (() => boolean) | null = null;

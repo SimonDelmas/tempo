@@ -300,13 +300,31 @@ pub struct NoteContent {
 
 pub struct Vault {
     pub root: PathBuf,
+    /// dossiers du vault qui ne contiennent pas de notes (bibliothèque de documents)
+    excluded: Vec<PathBuf>,
 }
 
 impl Vault {
     pub fn new(root: impl AsRef<Path>) -> Result<Self> {
+        Self::with_excluded(root, &[])
+    }
+
+    /// Vault dont les dossiers `excluded` (chemins absolus) sont ignorés par l'index et le
+    /// watcher des notes : la bibliothèque de documents quand elle est rangée dans le vault.
+    pub fn with_excluded(root: impl AsRef<Path>, excluded: &[PathBuf]) -> Result<Self> {
         let root = root.as_ref();
         fs::create_dir_all(root)?;
-        Ok(Vault { root: dunce::canonicalize(root)? })
+        let root = dunce::canonicalize(root)?;
+        let excluded = excluded
+            .iter()
+            .map(|p| dunce::canonicalize(p).unwrap_or_else(|_| p.clone()))
+            .filter(|p| p.starts_with(&root) && *p != root)
+            .collect();
+        Ok(Vault { root, excluded })
+    }
+
+    fn is_excluded(&self, path: &Path) -> bool {
+        self.excluded.iter().any(|dir| path.starts_with(dir))
     }
 
     /// Chemin absolu d'une note, refusé s'il sort du vault ou n'est pas un `.md`.
@@ -340,6 +358,9 @@ impl Vault {
     }
 
     pub fn is_ignored(&self, path: &Path) -> bool {
+        if self.is_excluded(path) {
+            return true;
+        }
         let Ok(relative) = path.strip_prefix(&self.root) else { return true };
         let parts: Vec<_> = relative.components().collect();
         parts.iter().take(parts.len().saturating_sub(1)).any(|p| {
@@ -354,7 +375,7 @@ impl Vault {
             .filter_entry(|e| {
                 e.depth() == 0 || !e.file_type().is_dir() || {
                     let name = e.file_name().to_string_lossy();
-                    !(IGNORED_DIRS.contains(&name.as_ref()) || name.starts_with('.'))
+                    !(IGNORED_DIRS.contains(&name.as_ref()) || name.starts_with('.') || self.is_excluded(e.path()))
                 }
             })
             .filter_map(|e| e.ok())

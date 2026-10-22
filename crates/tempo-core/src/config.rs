@@ -33,6 +33,15 @@ pub struct Settings {
     pub embed_model: Option<String>,
     pub embed_base_url: Option<String>,
     pub embed_api_key: Option<String>,
+    /// dossier de la bibliothèque de documents (`<vault>/bibliotheque` par défaut)
+    pub library: PathBuf,
+    /// cache de la bibliothèque (index SQLite), rangé hors du vault synchronisé
+    pub library_cache: PathBuf,
+    /// outils de conversion : pandoc et pdfium (sinon cherchés à côté de l'exécutable, puis dans le PATH)
+    pub pandoc: Option<PathBuf>,
+    pub pdfium: Option<PathBuf>,
+    /// modèle qui propose le classement des documents (le modèle rapide par défaut)
+    pub model_classify: String,
     pub host: String,
     pub port: u16,
     /// raccourcis clavier de navigation (vue précédente / suivante), ex. `Alt+ArrowLeft`
@@ -45,8 +54,14 @@ pub struct Settings {
 impl Settings {
     /// Réglages minimaux pour un vault donné, sans IA (tests).
     pub fn for_vault(vault: impl Into<PathBuf>) -> Self {
+        let vault: PathBuf = vault.into();
         Settings {
-            vault: vault.into(),
+            library: vault.join("bibliotheque"),
+            library_cache: vault.join(".tempo").join("bibliotheque"),
+            pandoc: None,
+            pdfium: None,
+            model_classify: "gpt-luna".into(),
+            vault,
             llm_base_url: None,
             llm_api_key: None,
             llm_ca_bundle: None,
@@ -157,10 +172,20 @@ pub fn load_settings() -> Settings {
     let vault = dunce::canonicalize(&vault).unwrap_or(vault);
     let base_url = var("VIBE_BASE_URL");
     let api_key = var("VIBE_API_KEY");
+    let library = var("TEMPO_LIBRARY").map(|p| expand_home(Path::new(&p))).unwrap_or_else(|| vault.join("bibliotheque"));
+    std::fs::create_dir_all(&library).ok();
+    let library = dunce::canonicalize(&library).unwrap_or(library);
+    let library_cache = var("TEMPO_LIBRARY_CACHE").map(PathBuf::from).unwrap_or_else(|| library_cache_dir(&library, &vault));
+    let model_fast = var("TEMPO_MODEL_FAST").unwrap_or_else(|| "gpt-luna".into());
     Settings {
+        library,
+        library_cache,
+        pandoc: var("TEMPO_PANDOC").map(PathBuf::from),
+        pdfium: var("TEMPO_PDFIUM").map(PathBuf::from),
+        model_classify: var("TEMPO_MODEL_CLASSIFY").unwrap_or_else(|| model_fast.clone()),
         vault,
         llm_ca_bundle: var("VIBE_CA_BUNDLE"),
-        model_fast: var("TEMPO_MODEL_FAST").unwrap_or_else(|| "gpt-luna".into()),
+        model_fast,
         model_smart: var("TEMPO_MODEL_SMART").unwrap_or_else(|| "claude-opus".into()),
         embed_model: var("TEMPO_EMBED_MODEL"),
         embed_base_url: var("TEMPO_EMBED_BASE_URL").or_else(|| base_url.clone()),
@@ -173,6 +198,15 @@ pub fn load_settings() -> Settings {
         shortcut_forward: var("TEMPO_SHORTCUT_FORWARD").unwrap_or_else(|| DEFAULT_SHORTCUT_FORWARD.into()),
         watch: true,
     }
+}
+
+/// Cache de la bibliothèque : `%LOCALAPPDATA%\Tempo\cache\<empreinte du dossier>` (un SQLite de
+/// plusieurs centaines de Mo réécrit à chaque ingestion se synchronise mal par OneDrive).
+fn library_cache_dir(library: &Path, vault: &Path) -> PathBuf {
+    let print = crate::vault::content_hash(&library.to_string_lossy().to_lowercase());
+    dirs::data_local_dir()
+        .map(|d| d.join("Tempo").join("cache").join(print))
+        .unwrap_or_else(|| vault.join(".tempo").join("bibliotheque"))
 }
 
 fn expand_home(path: &Path) -> PathBuf {

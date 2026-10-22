@@ -22,7 +22,7 @@ static DATE_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{4}-\
 static TITLE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#[ \t]+(.+?)\s*$").unwrap());
 static WORD_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").unwrap());
 
-pub const FOLDER_TYPES: [(&str, &str); 14] = [
+pub const FOLDER_TYPES: [(&str, &str); 15] = [
     ("00-inbox", "inbox"),
     ("journal", "journal"),
     ("reunions", "reunion"),
@@ -30,6 +30,7 @@ pub const FOLDER_TYPES: [(&str, &str); 14] = [
     ("taches", "tache"),
     ("projets", "projet"),
     ("sujets", "sujet"),
+    ("themes", "theme"),
     ("personnes", "personne"),
     ("ressources", "ressource"),
     ("formations", "formation"),
@@ -182,6 +183,11 @@ impl Index {
 
     fn bump(&self) {
         self.revision.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Signale au frontend un changement hors des notes (bibliothèque de documents).
+    pub fn touch(&self) {
+        self.bump();
     }
 
     // --- écriture -----------------------------------------------------------
@@ -386,6 +392,25 @@ impl Index {
             .filter(|n| name.as_ref().is_none_or(|name| [&n.stem, &n.alias, &n.title].iter().any(|s| fold(s).contains(name))))
             .filter(|n| wanted.iter().all(|(key, expected)| n.meta.get(*key).is_some_and(|v| matches(v, expected))))
             .collect())
+    }
+
+    /// Tags des notes (liste `tags` du frontmatter, `#` retiré) avec leur nombre d'occurrences.
+    pub fn tag_counts(&self) -> Result<Vec<(String, usize)>> {
+        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for note in self.all_notes()?.iter().filter(|n| !n.is_template()) {
+            let tags = match note.meta.get("tags") {
+                Some(Value::Array(items)) => items.iter().map(value_str).collect(),
+                Some(Value::String(s)) => s.split([',', ' ']).map(String::from).collect(),
+                _ => Vec::new(),
+            };
+            for tag in tags {
+                let tag = tag.trim().trim_start_matches('#').to_string();
+                if !tag.is_empty() {
+                    *counts.entry(tag).or_default() += 1;
+                }
+            }
+        }
+        Ok(counts.into_iter().collect())
     }
 
     /// Lignes des notes (frontmatter compris) qui correspondent à `pattern`, dans l'ordre des

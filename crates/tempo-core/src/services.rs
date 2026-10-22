@@ -12,6 +12,7 @@ use crate::imputations::ImputationService;
 use crate::inbox::InboxService;
 use crate::index::Index;
 use crate::journal::JournalService;
+use crate::library::LibraryService;
 use crate::llm::Llm;
 use crate::reports::ReportService;
 use crate::semantic::{openai_embedder, Embedder, SemanticIndex};
@@ -31,13 +32,16 @@ pub struct Services {
     pub chat: ChatService,
     pub imputations: Arc<ImputationService>,
     pub drafts: Arc<DraftService>,
+    pub library: Arc<LibraryService>,
 }
 
 impl Services {
     /// Services sur le vault des réglages ; sans `embedder`, celui de l'API configurée (s'il y en a une).
     pub fn new(settings: Settings, llm: Arc<dyn Llm>, embedder: Option<Embedder>) -> Result<Arc<Self>> {
         let settings = Arc::new(settings);
-        let vault = Arc::new(Vault::new(&settings.vault)?);
+        // la bibliothèque rangée dans le vault n'est ni indexée ni surveillée comme des notes
+        std::fs::create_dir_all(&settings.library)?;
+        let vault = Arc::new(Vault::with_excluded(&settings.vault, std::slice::from_ref(&settings.library))?);
         let tempo_dir = vault.root.join(".tempo");
         let index = Arc::new(Index::new(vault.clone(), &tempo_dir.join("index.db"))?);
         let embedder = match embedder {
@@ -58,6 +62,7 @@ impl Services {
         let inbox = Arc::new(InboxService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
         let drafts = Arc::new(DraftService::new(vault.clone(), index.clone(), tasks.clone(), journal.clone(), llm.clone(), settings.clone()));
         let imputations = Arc::new(ImputationService::new(vault.clone(), index.clone(), reports.clone(), llm.clone(), settings.clone()));
+        let library = Arc::new(LibraryService::new(settings.clone(), vault.clone(), index.clone(), llm.clone())?);
         let deps = ChatDeps {
             vault: vault.clone(),
             index: index.clone(),
@@ -74,6 +79,7 @@ impl Services {
             inbox,
             drafts,
             imputations,
+            library,
             settings,
             vault,
             index,
@@ -91,11 +97,13 @@ impl Services {
             self.index.start_watching()?;
             self.semantic.start(Duration::from_secs(15));
         }
+        self.library.start(self.settings.watch)?;
         Ok(count)
     }
 
     pub fn stop(&self) {
         self.semantic.stop();
+        self.library.stop();
         self.index.stop_watching();
     }
 }

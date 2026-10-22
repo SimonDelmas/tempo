@@ -5,3 +5,7 @@ frontend/dist/
 .trash/
 *.tsbuildinfo
 target/
+
+# outils de conversion téléchargés par scripts/telecharger-outils.ps1
+src-tauri/resources/*.exe
+src-tauri/resources/*.dll

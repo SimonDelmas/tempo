@@ -50,6 +50,8 @@ export type Config = {
   semantic_enabled: boolean;
   /** raccourcis de navigation entre les vues (« Alt+ArrowLeft ») */
   shortcuts: { back: string; forward: string };
+  /** bibliothèque : dossier, formats acceptés, taille maximale d'un fichier, outils trouvés */
+  library: { dir: string; formats: string[]; max_upload: number; pandoc: boolean; pdfium: boolean };
 };
 
 export type InboxItem = { path: string; content: string; preview: string };
@@ -177,7 +179,7 @@ const q = (params: Record<string, string>) => "?" + new URLSearchParams(params).
 
 export const api = {
   config: () => request<Config>("GET", "/api/config"),
-  state: () => request<{ revision: number; inbox: number; imputation_missing: number }>("GET", "/api/state"),
+  state: () => request<{ revision: number; inbox: number; imputation_missing: number; library: number }>("GET", "/api/state"),
   files: () => request<NoteSummary[]>("GET", "/api/files"),
   readNote: (path: string) => request<Note>("GET", "/api/notes" + q({ path })),
   writeNote: (path: string, content: string, expected_hash: string | null) =>
@@ -187,7 +189,8 @@ export const api = {
   deleteNote: (path: string) => request("DELETE", "/api/notes" + q({ path })),
   journalToday: () => request<{ path: string }>("POST", "/api/journal/today"),
   search: (query: string) => request<SearchResult[]>("GET", "/api/search" + q({ q: query })),
-  resolve: (name: string) => request<{ path: string }>("GET", "/api/resolve" + q({ name })),
+  /** note (path) ou, à défaut, document de la bibliothèque (document) désigné par un lien [[…]] */
+  resolve: (name: string) => request<{ path: string | null; document?: string }>("GET", "/api/resolve" + q({ name })),
   links: (path: string) =>
     request<{ backlinks: NoteSummary[]; outlinks: NoteSummary[] }>("GET", "/api/links" + q({ path })),
   tasks: () => request<Task[]>("GET", "/api/tasks"),
@@ -400,3 +403,114 @@ export const drafts = {
 
 /** types de notes proposés à la création (NOTE_KINDS dans journal.rs) */
 export const NOTE_KINDS = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation"];
+
+// --- bibliothèque de documents -------------------------------------------------
+
+/** document de la bibliothèque : frontmatter de son pivot (`id` : nom du pivot, utilisable en [[…]]) */
+export type LibraryDocument = {
+  id: string;
+  title: string;
+  format: string;
+  themes: string[];
+  projects: string[];
+  tags: string[];
+  summary: string;
+  /** fichier d'origine, relatif au dossier de la bibliothèque */
+  source: string;
+  source_hash: string;
+  size: number;
+  /** pages d'un PDF, diapositives d'une présentation */
+  pages: number | null;
+  added: string;
+  updated: string | null;
+  /** lien vers le mail dont le document est une pièce jointe */
+  attached_to: string | null;
+  /** classement à valider (file « À classer ») */
+  pending: boolean;
+};
+
+/** document trouvé, avec son passage le plus pertinent (vide sans recherche) */
+export type LibraryHit = LibraryDocument & { snippet: string; section: string; page: number | null };
+
+export type LibraryDetail = LibraryDocument & {
+  /** texte converti (corps du pivot) */
+  content: string;
+  outline: { level: number; title: string }[];
+  /** document que celui-ci remplacerait (même nom de fichier) */
+  replaces: string | null;
+};
+
+export type UntrackedFile = { path: string; name: string; size: number; format: string | null };
+
+export type LibraryQueue = {
+  pending: (LibraryDocument & { replaces: string | null })[];
+  /** fichiers copiés à la main dans le dossier, à ingérer */
+  untracked: UntrackedFile[];
+};
+
+/** classement proposé par le modèle (rien n'est écrit avant validation) */
+export type Classification = {
+  title: string;
+  summary: string;
+  themes: string[];
+  /** thèmes à créer suggérés quand aucun thème existant ne convient */
+  new_themes: string[];
+  projects: string[];
+  tags: string[];
+  replaces: string | null;
+};
+
+/** classement validé ; replaces : document remplacé par celui-ci */
+export type DocumentMeta = {
+  title: string;
+  summary: string;
+  themes: string[];
+  projects: string[];
+  tags: string[];
+  replaces?: string | null;
+};
+
+export type Ingested = { document: LibraryDocument; attachments: LibraryDocument[]; warnings: string[] };
+export type Theme = { id: string; title: string; path: string };
+export type TagCount = { tag: string; count: number };
+export type LibraryFilter = { q?: string; theme?: string; project?: string; tag?: string; format?: string };
+
+const doc = (id: string) => `/api/library/docs/${encodeURIComponent(id)}`;
+
+export const library = {
+  list: (filter: LibraryFilter = {}) =>
+    request<LibraryHit[]>("GET", "/api/library" + q(Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) as Record<string, string>)),
+  queue: () => request<LibraryQueue>("GET", "/api/library/queue"),
+  /** dépose un fichier (corps brut) ; le serveur le convertit et l'ajoute à la file « À classer » */
+  upload: async (file: File): Promise<Ingested> => {
+    const response = await fetch("/api/library/upload" + q({ name: file.name }), { method: "POST", body: file });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw new ApiError(response.status, data ?? { detail: `Dépôt refusé (${response.status})` });
+    return data as Ingested;
+  },
+  ingest: (path: string) => request<Ingested>("POST", "/api/library/ingest", { path }),
+  get: (id: string) => request<LibraryDetail>("GET", doc(id)),
+  update: (id: string, meta: DocumentMeta) => request<LibraryDocument>("PUT", doc(id), meta),
+  remove: (id: string) => request("DELETE", doc(id)),
+  classify: (id: string) => request<Classification>("POST", doc(id) + "/classify"),
+  reconvert: (id: string) => request<LibraryDocument>("POST", doc(id) + "/reconvert"),
+  /** ouvre le fichier d'origine avec l'application du poste, ou le montre dans l'explorateur */
+  open: (id: string, reveal = false) => request("POST", doc(id) + "/open" + (reveal ? "?reveal=true" : "")),
+  sourceUrl: (id: string) => doc(id) + "/source",
+  themes: () => request<Theme[]>("GET", "/api/themes"),
+  createTheme: (title: string) => request<Theme>("POST", "/api/themes", { title }),
+  tags: () => request<TagCount[]>("GET", "/api/tags"),
+};
+
+export const FORMAT_LABELS: Record<string, string> = {
+  pdf: "PDF", docx: "Word", doc: "Word 97", pptx: "PowerPoint", ppt: "PowerPoint 97", xlsx: "Excel", xlsm: "Excel",
+  xls: "Excel 97", ods: "Calc", odt: "Writer", rtf: "RTF", html: "HTML", epub: "EPUB", md: "Markdown", txt: "Texte",
+  eml: "Mail", msg: "Mail Outlook",
+};
+
+/** taille lisible : « 1,2 Mo » */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
+  return `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} Mo`;
+}

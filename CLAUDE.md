@@ -53,6 +53,10 @@ Pas de linter configuré (`cargo clippy` disponible).
   message utilisateur, pas seulement système), tool calling natif diffusé (`chat_tools`,
   utilisé par le chat), et `FakeLlm` pour les tests (`fake_tool_calls` simule des appels
   d'outils).
+- `library.rs` : bibliothèque de documents (pivots `<nom>.md` + `sources/`, dossier `TEMPO_LIBRARY`
+  exclu de l'index des notes, index `library.db` rangé hors du vault, file « À classer », thèmes
+  `themes/`) ; `convert/` : conversion en Markdown (pandoc, pdfium, pptx, calamine, mails, .doc/.ppt).
+  Les tests de conversion pandoc / PDF sont sautés si les outils sont absents.
 - `notes.rs` : modifications ciblées d'une note (passages, sections, frontmatter, liens),
   utilisées par les propositions du chat.
 - `de.rs` : désérialiseurs tolérants pour les réponses du modèle (équivalent des validateurs
