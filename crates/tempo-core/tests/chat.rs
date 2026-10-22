@@ -270,6 +270,7 @@ fn note_proposals_errors_are_returned_to_the_model() {
         ("propose_link", json!({"name": COPIL, "target": "note-inexistante"})),
         ("propose_unlink", json!({"name": COPIL, "target": "mapping-unites-de-mesure"})),
         ("propose_note_create", json!({"type": "journal", "title": "x"})),
+        ("propose_note_create", json!({"type": "sujet", "title": "x", "projects": ["inconnu"]})),
     ]);
     let summaries: Vec<&str> = result["steps"].as_array().unwrap().iter().map(|s| s["summary"].as_str().unwrap()).collect();
     assert!(summaries[0].contains("introuvable"));
@@ -279,6 +280,7 @@ fn note_proposals_errors_are_returned_to_the_model() {
     assert!(summaries[4].contains("Aucune note"));
     assert!(summaries[5].contains("aucun lien"));
     assert!(summaries[6].contains("type invalide"));
+    assert!(summaries[7].contains("Projet introuvable"));
     assert!(result["proposals"].as_array().unwrap().is_empty());
 }
 
@@ -286,7 +288,7 @@ fn note_proposals_errors_are_returned_to_the_model() {
 fn create_and_delete_notes() {
     let c = common::ctx();
     let result = propose(&c, vec![
-        ("propose_note_create", json!({"type": "personne", "title": "Marc Leroy", "content": "Fournit les jeux de test ([[2026-10-15-copil-sap]])."})),
+        ("propose_note_create", json!({"type": "personne", "title": "Marc Leroy", "projects": ["sap"], "content": "Fournit les jeux de test ([[2026-10-15-copil-sap]])."})),
         ("propose_note_delete", json!({"name": "mapping-unites-de-mesure"})),
     ]);
     let proposals = result["proposals"].as_array().unwrap();
@@ -297,6 +299,7 @@ fn create_and_delete_notes() {
     assert_eq!(path, "personnes/Marc Leroy.md");
     let text = c.vault.read_text(&path).unwrap();
     assert!(text.contains("type: personne") && text.contains("# Marc Leroy") && text.contains("Fournit les jeux de test"));
+    assert!(text.contains("projects: [sap]"));
     assert!(c.index.backlinks(COPIL).unwrap().iter().any(|n| n.path == path));
 
     let delete: ChatProposal = serde_json::from_value(proposals[1].clone()).unwrap();

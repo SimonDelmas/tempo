@@ -77,6 +77,9 @@ pub struct DraftNote {
     pub title: String,
     #[serde(default, deserialize_with = "de::string")]
     pub content: String,
+    /// identifiants des projets auxquels rattacher la note
+    #[serde(default, deserialize_with = "de::string_list")]
+    pub projects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,7 +235,7 @@ impl DraftService {
         let mut lines = vec![
             format!(
                 "Projets connus : {}",
-                if projects.is_empty() { "aucun".to_string() } else { projects.into_iter().collect::<Vec<_>>().join(", ") }
+                if projects.is_empty() { "aucun".to_string() } else { projects.iter().cloned().collect::<Vec<_>>().join(", ") }
             ),
             "Tâches ouvertes :".to_string(),
         ];
@@ -252,6 +255,11 @@ impl DraftService {
         if let Some(note) = proposal.note.as_mut() {
             if note.title.trim().is_empty() {
                 note.title = draft.title.trim().to_string();
+            }
+            // seuls les projets connus sont gardés ; une fiche projet ne se rattache pas à un projet
+            note.projects.retain(|p| projects.contains(p.trim()));
+            if note.kind == "projet" {
+                note.projects.clear();
             }
         }
         let known: Vec<String> = open_tasks.iter().map(|t| t.id.to_uppercase()).collect();
@@ -276,7 +284,7 @@ impl DraftService {
             return Err(vault_err("Rien à créer : cochez la note ou au moins une tâche"));
         }
         let note_path = match note {
-            Some(n) => Some(self.journal.create_note_with_body(&n.kind, &n.title, None, Some(&n.content))?),
+            Some(n) => Some(self.journal.create_note_with_body(&n.kind, &n.title, None, Some(&n.content), &n.projects)?),
             None => None,
         };
         let link = note_path.as_deref().map(|p| p.rsplit('/').next().unwrap_or(p).trim_end_matches(".md").to_string());

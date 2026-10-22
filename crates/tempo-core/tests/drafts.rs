@@ -44,7 +44,7 @@ fn drafts_are_files_outside_the_index() {
 fn analyze_cleans_the_proposal() {
     let c = common::ctx();
     let response = json!({
-        "note": {"type": "compte-rendu", "title": "", "content": "## Décisions\n- recette le 28"},
+        "note": {"type": "compte-rendu", "title": "", "content": "## Décisions\n- recette le 28", "projects": ["sap", "inconnu"]},
         "tasks": [
             {"title": "Rédiger la procédure de recette", "project": "sap", "duplicate_of": "T-004"},
             {"title": "Relancer Marc", "priority": "urgente", "status": "fini", "due": "vendredi", "duplicate_of": "T-999"},
@@ -61,6 +61,7 @@ fn analyze_cleans_the_proposal() {
     let proposal = drafts.analyze(&draft.id, NaiveDate::from_ymd_opt(2026, 10, 19)).unwrap();
     let note = proposal.note.unwrap();
     assert_eq!((note.kind.as_str(), note.title.as_str()), ("note", "Copil SAP"));
+    assert_eq!(note.projects, vec!["sap"]); // projet inconnu écarté
     assert_eq!(proposal.tasks.len(), 2);
     assert!(!proposal.tasks[0].accepted && proposal.tasks[0].duplicate_of.as_deref() == Some("T-004"));
     let relance = &proposal.tasks[1];
@@ -76,7 +77,7 @@ fn analyze_cleans_the_proposal() {
 #[tokio::test]
 async fn drafts_api_flow() {
     let proposal = json!({
-        "note": {"type": "reunion", "title": "Point SAP", "content": "## Décisions\n- recette le 28"},
+        "note": {"type": "reunion", "title": "Point SAP", "content": "## Décisions\n- recette le 28", "projects": ["sap"]},
         "tasks": [{"title": "Relancer Marc", "project": "sap", "due": "2026-10-23"}],
         "comment": ""
     });
@@ -110,6 +111,7 @@ async fn drafts_api_flow() {
     assert!(content.contains(&format!("## Tâches\n- [[{task_id}]]")));
     assert!(!content.contains("## Participants"));
     assert_eq!(note["meta"]["tasks"], json!([format!("[[{task_id}]]")]));
+    assert_eq!(note["meta"]["projects"], json!(["sap"]));
     let task = app.get(&format!("/api/tasks/{task_id}")).await.json();
     let stem = note_path.rsplit('/').next().unwrap().trim_end_matches(".md");
     assert!(task["content"].as_str().unwrap().contains(&format!("créée depuis [[{stem}]]")));

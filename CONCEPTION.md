@@ -248,7 +248,7 @@ déplace le fichier dans `.trash/`.
 
 « Analyser » (`drafts.rs`, `DRAFT_SYSTEM`) : avec les projets connus et les tâches
 ouvertes en contexte, le modèle propose une note (`type` parmi `NOTE_KINDS`, titre, contenu
-Markdown) et/ou des tâches (`duplicate_of` vérifié, tâche en doublon décochée). Rien n'est
+Markdown, `projects` limités aux projets connus) et/ou des tâches (`duplicate_of` vérifié, tâche en doublon décochée). Rien n'est
 écrit avant « Créer » : la note est créée depuis son modèle (le corps remplace celui du
 modèle), les tâches citent la note (`créée depuis [[…]]`), la note les liste (section
 `## Tâches` et clé `tasks` si le modèle la prévoit), puis le brouillon est fermé si demandé.
@@ -272,7 +272,8 @@ ripgrep : un vault reste assez petit pour être parcouru à chaque appel. Les mo
 erreur que Vibe signale dans le flux SSE avec un statut 200 (quota de tokens dépassé, par
 exemple) est remontée comme erreur, au lieu d'une réponse vide. Outils de proposition, sans écriture, appliqués un à un par
 l'utilisateur : `propose_task`, `propose_task_update` (statut, priorité, échéance, titre,
-projet, semaine), `propose_journal_line`, et pour les notes `propose_note_create`,
+projet, semaine), `propose_journal_line`, et pour les notes `propose_note_create` (projets
+vérifiés, modifiables sur la carte avant validation),
 `propose_note_edit` (passages cités, chacun unique dans la note), `propose_note_append`
 (fin d'une section), `propose_note_meta` (frontmatter clé par clé ; refusé pour les champs
 d'une tâche, qui passent par `propose_task_update` et son historique),
@@ -343,4 +344,6 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Backlog à plat : ordre unique de toutes les tâches partagé avec le board (réordonnable
   des deux côtés), feature en colonne, filtres par colonne et recherche
 - [x] Chat dans un panneau latéral droit accessible depuis tous les espaces (réductible, redimensionnable, Alt+C)
+- [x] Projets d'une note à sa création (clé `projects` du frontmatter) : « + Nouvelle note »,
+  note proposée par le Draft et par le chat
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

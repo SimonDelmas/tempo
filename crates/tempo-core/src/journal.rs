@@ -86,12 +86,20 @@ impl JournalService {
         Ok(rel)
     }
 
-    pub fn create_note(&self, kind: &str, title: &str, date: Option<&str>) -> Result<String> {
-        self.create_note_with_body(kind, title, date, None)
+    pub fn create_note(&self, kind: &str, title: &str, date: Option<&str>, projects: &[String]) -> Result<String> {
+        self.create_note_with_body(kind, title, date, None, projects)
     }
 
-    /// Comme [`Self::create_note`] ; `body` remplace ce qui suit le titre dans le modèle.
-    pub fn create_note_with_body(&self, kind: &str, title: &str, date: Option<&str>, body: Option<&str>) -> Result<String> {
+    /// Comme [`Self::create_note`] ; `body` remplace ce qui suit le titre dans le modèle et
+    /// `projects` (identifiants de projets) renseigne la liste `projects` du frontmatter.
+    pub fn create_note_with_body(
+        &self,
+        kind: &str,
+        title: &str,
+        date: Option<&str>,
+        body: Option<&str>,
+        projects: &[String],
+    ) -> Result<String> {
         if kind == "journal" {
             return self.ensure(date);
         }
@@ -120,6 +128,7 @@ impl JournalService {
             Some(body) => with_body(&text, body),
             None => text,
         };
+        let text = with_projects(&text, projects);
         self.vault.write(&rel, &text, None, true)?;
         self.index.upsert(&rel)?;
         Ok(rel)
@@ -149,6 +158,23 @@ fn with_title(text: &str, title: &str) -> String {
     join_frontmatter(&meta, &body)
 }
 
+/// Renseigne la liste `projects` du frontmatter (à sa place si le modèle la prévoit déjà) ;
+/// sans projet, la note reste telle que le modèle la donne.
+fn with_projects(text: &str, projects: &[String]) -> String {
+    let mut ids: Vec<&str> = Vec::new();
+    for id in projects.iter().map(|p| p.trim()).filter(|p| !p.is_empty()) {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    if ids.is_empty() {
+        return text.to_string();
+    }
+    let (mut meta, body) = split_frontmatter(text);
+    meta.insert("projects".into(), Value::from(ids));
+    join_frontmatter(&meta, body)
+}
+
 /// Remplace ce qui suit le titre de niveau 1 (posé par [`with_title`]) par `body`.
 fn with_body(text: &str, body: &str) -> String {
     let (meta, current) = split_frontmatter(text);
@@ -174,6 +200,16 @@ mod tests {
         assert_eq!(with_title(text, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\n\n## Suite\n");
         let sans_titre = "---\ntype: note\n---\n\nTexte\n";
         assert_eq!(with_title(sans_titre, "Ma note"), "---\ntype: note\ntitle: Ma note\n---\n\n# Ma note\nTexte\n");
+    }
+
+    #[test]
+    fn with_projects_renseigne_le_frontmatter() {
+        let text = "---\ntype: reunion\nprojects: []\ntitle: Point\n---\n\n# Point\n";
+        let ids = vec!["sap".to_string(), " sap ".to_string(), "crm".to_string()];
+        assert_eq!(with_projects(text, &ids), "---\ntype: reunion\nprojects: [sap, crm]\ntitle: Point\n---\n\n# Point\n");
+        let note = "---\ntype: note\ntitle: X\n---\n\n# X\n";
+        assert_eq!(with_projects(note, &["sap".into()]), "---\ntype: note\ntitle: X\nprojects: [sap]\n---\n\n# X\n");
+        assert_eq!(with_projects(note, &[]), note);
     }
 
     #[test]

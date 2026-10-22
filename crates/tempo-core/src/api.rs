@@ -114,6 +114,8 @@ struct NoteCreate {
     #[serde(default)]
     title: String,
     date: Option<String>,
+    #[serde(default)]
+    projects: Vec<String>,
 }
 
 fn note_type() -> String {
@@ -413,7 +415,7 @@ async fn write_note(State(s): State<AppState>, JsonBody(body): JsonBody<NoteWrit
 }
 
 async fn create_note(State(s): State<AppState>, JsonBody(body): JsonBody<NoteCreate>) -> ApiResult {
-    blocking(move || Ok(json!({"path": s.journal.create_note(&body.kind, &body.title, body.date.as_deref())?}))).await
+    blocking(move || Ok(json!({"path": s.journal.create_note(&body.kind, &body.title, body.date.as_deref(), &body.projects)?}))).await
 }
 
 async fn delete_note(State(s): State<AppState>, Query(q): Query<PathParam>) -> ApiResult {

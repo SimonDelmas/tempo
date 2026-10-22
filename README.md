@@ -122,7 +122,8 @@ http://localhost:5173.
 
   Fiche de tâche avec statut / priorité / échéance / projet, historique daté et bouton
   « Rapport d'avancement ». Partout où un projet est demandé (fiche de tâche, création de
-  tâche, propositions de l'inbox, du Draft et de l'extraction de tâches), il se choisit dans la
+  tâche, propositions de l'inbox, du Draft et de l'extraction de tâches, création d'une note
+  depuis « + Nouvelle note », le Draft ou une proposition du chat), il se choisit dans la
   liste des notes de `projets/` ; l'option « + Nouveau projet… » de cette liste crée la note
   d'un nouveau projet et le sélectionne.
 - **Inbox** : coller des résumés de mails / Teams (séparés par `---`) ou déposer des fichiers
@@ -133,7 +134,7 @@ http://localhost:5173.
   « × » ou clic molette pour le fermer, titre facultatif). Ce ne sont pas des notes : ils
   sont enregistrés automatiquement dans `<vault>/.brouillons/`, hors de l'index, et
   retrouvés au redémarrage comme après une mise à jour. « Analyser » demande à l'IA de
-  transformer le brouillon en note (type, titre et contenu mis en forme) et/ou en tâches
+  transformer le brouillon en note (type, titre, projets et contenu mis en forme) et/ou en tâches
   (doublons de tâches ouvertes signalés) ; après ajustement, « Créer » écrit la note et les
   tâches (reliées entre elles) puis ferme le brouillon si la case est cochée.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;

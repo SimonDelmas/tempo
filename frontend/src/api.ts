@@ -182,8 +182,8 @@ export const api = {
   readNote: (path: string) => request<Note>("GET", "/api/notes" + q({ path })),
   writeNote: (path: string, content: string, expected_hash: string | null) =>
     request<{ hash: string }>("PUT", "/api/notes", { path, content, expected_hash }),
-  createNote: (type: string, title: string) =>
-    request<{ path: string }>("POST", "/api/notes", { type, title }),
+  createNote: (type: string, title: string, projects: string[] = []) =>
+    request<{ path: string }>("POST", "/api/notes", { type, title, projects }),
   deleteNote: (path: string) => request("DELETE", "/api/notes" + q({ path })),
   journalToday: () => request<{ path: string }>("POST", "/api/journal/today"),
   search: (query: string) => request<SearchResult[]>("GET", "/api/search" + q({ q: query })),
@@ -298,7 +298,7 @@ export type ChatProposal =
   | { kind: "update_task"; task_id: string; title: string; status: string | null; priority: string | null;
       due: string | null; note: string; new_title?: string | null; project?: string | null; iteration?: string | null }
   | { kind: "journal"; line: string }
-  | { kind: "create_note"; type: string; title: string; date: string | null; content: string }
+  | { kind: "create_note"; type: string; title: string; date: string | null; content: string; projects?: string[] }
   | { kind: "edit_note"; path: string; title: string; edits: { find: string; replace: string }[] }
   | { kind: "append_note"; path: string; title: string; section: string | null; text: string }
   | { kind: "update_meta"; path: string; title: string; set: Record<string, unknown>; remove: string[];
@@ -381,7 +381,7 @@ export type TextAction = "resumer" | "reformuler" | "actions";
 export type Draft = { id: string; title: string; content: string; created: string; updated: string };
 
 export type DraftProposal = {
-  note: { accepted: boolean; type: string; title: string; content: string } | null;
+  note: { accepted: boolean; type: string; title: string; content: string; projects: string[] } | null;
   tasks: (TaskDraft & { accepted: boolean; status: string })[];
   comment: string;
 };

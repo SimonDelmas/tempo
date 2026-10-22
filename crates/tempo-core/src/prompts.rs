@@ -162,7 +162,8 @@ Tu réponds UNIQUEMENT avec un objet json de la forme :
 {
   "note": {"type": {kinds},
            "title": "titre court et explicite",
-           "content": "contenu de la note en Markdown, sans titre de niveau 1"} | null,
+           "content": "contenu de la note en Markdown, sans titre de niveau 1",
+           "projects": ["identifiant-projet", ...]} | null,
   "tasks": [
     {"title": "verbe à l'infinitif + objet, court",
      "description": "contexte utile en une ou deux phrases",
@@ -187,6 +188,7 @@ Règles :
 - Un brouillon qui n'est qu'une liste de choses à faire donne des tâches et "note": null.
 - Échéance seulement si le brouillon en donne une (convertis « vendredi », « fin du mois »…).
 - Projet : reprends un identifiant de projet fourni si le brouillon s'y rapporte, sinon null.
+  Pour la note, "projects" liste les projets fournis dont elle traite ([] sinon).
 - Si une tâche ouverte fournie couvre déjà l'action, indique son identifiant dans "duplicate_of".
 - Rédige en français, de manière factuelle et concise."#;
 

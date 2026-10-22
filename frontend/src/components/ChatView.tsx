@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { AccountCategory, api, CATEGORY_LABELS, ChatProposal, ChatStep, Config, Hours, STATUS_LABELS, TYPE_LABELS } from "../api";
+import { AccountCategory, api, CATEGORY_LABELS, ChatProposal, ChatStep, Config, Hours, Project, STATUS_LABELS,
+  TYPE_LABELS } from "../api";
 import { ChatEntry, Conversation, LiveReply, ProposalState } from "../chats";
 import Markdown from "./Markdown";
+import { ProjectsSelect, useProjects } from "./ProjectSelect";
 
 type Props = {
   config: Config;
@@ -101,7 +103,8 @@ function describe(p: ChatProposal): { title: string; detail?: string; diff?: Dif
       return { title: "Ajouter au journal du jour", detail: p.line };
     case "create_note":
       return { title: `Créer la note « ${p.title} »`,
-        detail: [TYPE_LABELS[p.type] ?? p.type, p.date].filter(Boolean).join(" · "),
+        detail: [TYPE_LABELS[p.type] ?? p.type, p.date, p.projects?.length && `projets ${p.projects.join(", ")}`]
+          .filter(Boolean).join(" · "),
         diff: p.content.trim() ? lines("+", p.content.trim()) : undefined };
     case "edit_note":
       return { title: `Modifier « ${p.title} »`,
@@ -201,16 +204,27 @@ function Diff({ diff }: { diff: DiffLine[] }) {
   );
 }
 
-function ProposalCard({ item, onApply, onIgnore, onOpen }: {
-  item: ProposalState; onApply: () => Promise<void>; onIgnore: () => void; onOpen: (path: string) => void;
+function ProposalCard({ item, projects, onApply, onIgnore, onEdit, onOpen, onProjectCreated, notify }: {
+  item: ProposalState; projects: Project[]; onApply: () => Promise<void>; onIgnore: () => void;
+  /** modifie la proposition avant validation */
+  onEdit: (proposal: ChatProposal) => void;
+  onOpen: (path: string) => void; onProjectCreated: (project: Project) => void;
+  notify: (message: string, error?: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const { title, detail, diff } = describe(item.proposal);
+  const p = item.proposal;
   return (
     <div className={`proposal-item ${item.state}`}>
       <div className="grow">
         <div className="proposal-title">{title}</div>
         {detail && <div className="muted small">{detail}</div>}
+        {p.kind === "create_note" && p.type !== "projet" && item.state === "pending" && (
+          <label className="proposal-field small">Projets
+            <ProjectsSelect projects={projects} value={p.projects ?? []} onChange={(ids) => onEdit({ ...p, projects: ids })}
+              onCreated={onProjectCreated} notify={notify} />
+          </label>
+        )}
         {diff && diff.length > 0 && item.state !== "ignored" && <Diff diff={diff} />}
       </div>
       {item.state === "pending" && (
@@ -232,6 +246,7 @@ function ProposalCard({ item, onApply, onIgnore, onOpen }: {
 
 export default function ChatView({ config, conversation, live, onSend, onReplace, onOpen, notify }: Props) {
   const [draft, setDraft] = useState("");
+  const [projects, addProject] = useProjects(0);
   const bottom = useRef<HTMLDivElement>(null);
   const messages = conversation?.messages ?? [];
 
@@ -290,7 +305,9 @@ export default function ChatView({ config, conversation, live, onSend, onReplace
             {!!m.proposals?.length && (
               <div className="proposal-list">
                 {m.proposals.map((item, j) => (
-                  <ProposalCard key={j} item={item} onOpen={onOpen}
+                  <ProposalCard key={j} item={item} onOpen={onOpen} projects={projects}
+                    onProjectCreated={addProject} notify={notify}
+                    onEdit={(proposal) => setProposal(i, j, { ...item, proposal })}
                     onApply={() => apply(i, j, item)}
                     onIgnore={() => setProposal(i, j, { ...item, state: "ignored" })} />
                 ))}

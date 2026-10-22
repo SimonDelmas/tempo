@@ -414,6 +414,7 @@ input.full { width: 100%; }
 .proposal-item.applied { border-style: solid; border-color: var(--border); }
 .proposal-item.ignored { opacity: .55; border-color: var(--border); }
 .proposal-title { font-weight: 600; }
+.proposal-field { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--muted); }
 .proposal-diff {
   margin-top: 6px; padding: 4px 0; border-radius: 6px; border: 1px solid var(--border); background: var(--panel);
   font: 12px/1.5 var(--mono); overflow-x: auto;

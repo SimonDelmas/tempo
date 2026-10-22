@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Config, Draft, DraftProposal, drafts as draftsApi, NOTE_KINDS, NoteSummary, STATUS_LABELS,
   TYPE_LABELS } from "../api";
 import MarkdownEditor from "./MarkdownEditor";
-import ProjectSelect, { useProjects } from "./ProjectSelect";
+import ProjectSelect, { ProjectsSelect, useProjects } from "./ProjectSelect";
 
 type Props = {
   config: Config;
@@ -104,7 +104,8 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
   };
 
   const remove = async (d: Draft) => {
-    if (d.content.trim() && !window.confirm(`Fermer « ${draftLabel(d)} » ? (déplacé dans .trash)`)) return;
+    const filled = d.content.trim() || d.title.trim();
+    if (filled && !window.confirm(`Fermer le brouillon « ${draftLabel(d)} » ?\n\nSon contenu sera perdu.`)) return;
     try {
       await draftsApi.remove(d.id);
       drop(d.id);
@@ -223,6 +224,12 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
                       </select>
                     </label>
                     <label>Titre<input value={proposal.note.title} onChange={(e) => setNote({ title: e.target.value })} /></label>
+                    {proposal.note.type !== "projet" && (
+                      <label className="wide">Projets
+                        <ProjectsSelect projects={projects} value={proposal.note.projects ?? []}
+                          onChange={(ids) => setNote({ projects: ids })} onCreated={addProject} notify={notify} />
+                      </label>
+                    )}
                     <label className="wide">Contenu
                       <textarea rows={10} value={proposal.note.content} onChange={(e) => setNote({ content: e.target.value })} />
                     </label>

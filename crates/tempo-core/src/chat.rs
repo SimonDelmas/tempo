@@ -104,6 +104,9 @@ pub enum ChatProposal {
         date: Option<String>,
         #[serde(default)]
         content: String,
+        /// identifiants des projets auxquels la note se rattache
+        #[serde(default)]
+        projects: Vec<String>,
     },
     EditNote {
         path: String,
@@ -415,6 +418,8 @@ struct NoteCreateArgs {
     date: Option<String>,
     #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    projects: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -709,6 +714,8 @@ fn proposal_tools() -> Vec<ToolDef> {
                  "type": choice(&NOTE_KINDS), "title": text("titre (devient le nom du fichier)"),
                  "date": date("date de la note, aujourd'hui par défaut"),
                  "content": text("corps en Markdown, sous le titre (sections ##, puces, [[liens]])"),
+                 "projects": {"type": "array", "items": {"type": "string"},
+                              "description": "identifiants des projets dont traite la note (list_projects)"},
              }))),
         tool("propose_note_edit",
              &format!("{PROPOSAL}remplacement de passages du corps d'une note (ou tâche). Chaque passage cité \
@@ -1151,13 +1158,18 @@ impl ChatService {
     }
 
     fn propose_note_create(&self, args: NoteCreateArgs) -> Result<ChatProposal> {
-        let NoteCreateArgs { note_type, title, date, content } = args;
+        let NoteCreateArgs { note_type, title, date, content, projects } = args;
         check_choice("type", Some(note_type.clone()), &NOTE_KINDS)?;
         if title.trim().is_empty() {
             return Err(vault_err("Le titre de la note est obligatoire"));
         }
         let date = check_date(date.as_deref())?;
-        Ok(ChatProposal::CreateNote { note_type, title: title.trim().into(), date, content: content.unwrap_or_default() })
+        let projects: Vec<String> =
+            projects.unwrap_or_default().into_iter().map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+        for project in &projects {
+            self.project_title(project)?;
+        }
+        Ok(ChatProposal::CreateNote { note_type, title: title.trim().into(), date, content: content.unwrap_or_default(), projects })
     }
 
     /// Note visée par une proposition : chemin et titre.
@@ -1435,9 +1447,9 @@ impl ChatService {
                 let path = self.journal.append(&today_str, "## Notes", &format!("- {line}"))?;
                 Ok(json!({"path": path, "message": "Ligne ajoutée au journal"}))
             }
-            ChatProposal::CreateNote { note_type, title, date, content } => {
+            ChatProposal::CreateNote { note_type, title, date, content, projects } => {
                 let date = date.as_deref().unwrap_or(&today_str);
-                let path = self.journal.create_note_with_body(note_type, title, Some(date), Some(content))?;
+                let path = self.journal.create_note_with_body(note_type, title, Some(date), Some(content), projects)?;
                 Ok(json!({"path": path, "message": "Note créée"}))
             }
             ChatProposal::DeleteNote { path, .. } => {

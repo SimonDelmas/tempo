@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, NoteSummary, SearchResult, SemanticStatus } from "../api";
 import { isSpaceFolder } from "../router";
+import ProjectSelect, { useProjects } from "./ProjectSelect";
 
 type Props = {
   files: NoteSummary[];
@@ -86,6 +87,8 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
   const [creating, setCreating] = useState(false);
   const [newType, setNewType] = useState("reunion");
   const [newTitle, setNewTitle] = useState("");
+  const [newProject, setNewProject] = useState("");
+  const [projects, addProject] = useProjects(0);
   // tâches, rapports et imputations ont leur propre espace
   const tree = useMemo(() => buildTree(files.filter((f) => !isSpaceFolder(f.path.split("/")[0]))), [files]);
 
@@ -121,9 +124,11 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
 
   const create = async () => {
     try {
-      const { path } = await api.createNote(newType, newTitle);
+      const { path } = await api.createNote(newType, newTitle,
+        newType !== "projet" && newProject ? [newProject] : []);
       setCreating(false);
       setNewTitle("");
+      setNewProject("");
       onOpen(path);
     } catch (e) {
       notify((e as Error).message, true);
@@ -149,6 +154,10 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
           </select>
           <input autoFocus placeholder="Titre" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") create(); if (e.key === "Escape") setCreating(false); }} />
+          {newType !== "projet" && (
+            <ProjectSelect projects={projects} value={newProject} onChange={setNewProject} onCreated={addProject}
+              notify={notify} />
+          )}
           <div className="row">
             <button className="primary" onClick={create}>Créer</button>
             <button className="ghost" onClick={() => setCreating(false)}>Annuler</button>
