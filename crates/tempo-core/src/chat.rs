@@ -31,9 +31,9 @@ use crate::semantic::SemanticIndex;
 use crate::notes::{add_link, append_text, apply_edits, heading, remove_link, split_raw, update_meta, with_meta, TextEdit};
 use crate::tasks::{week_start, NewTask, Task, TaskService, EDITABLE_FIELDS, PRIORITIES, STATUSES};
 use crate::util::{clip, date_or_today, iso_date, parse_date, today, week_bounds, week_label};
-use crate::vault::{content_hash, split_frontmatter, value_str, Vault};
+use crate::vault::{content_hash, join_frontmatter, split_frontmatter, value_str, Vault};
 
-pub const MAX_STEPS: usize = 10;
+pub const MAX_STEPS: usize = 12;
 const MAX_NOTE_CHARS: usize = 8000;
 const MAX_RESULT_CHARS: usize = 12000;
 const MAX_HISTORY: usize = 20;
@@ -42,7 +42,7 @@ const WEEKDAYS: [&str; 7] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", 
 const SEARCH_MODES: [&str; 3] = ["mots", "phrase", "ou"];
 const MAX_GREP_HITS: usize = 60;
 /// types proposés à `list_notes` (les tâches ont leur propre outil)
-const LISTED_KINDS: [&str; 9] = ["reunion", "echange", "journal", "sujet", "projet", "personne", "ressource", "formation", "rapport"];
+const LISTED_KINDS: [&str; 10] = ["reunion", "echange", "journal", "sujet", "projet", "personne", "ressource", "formation", "rapport", "synthese"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -109,6 +109,12 @@ pub enum ChatProposal {
         /// identifiants des projets auxquels la note se rattache
         #[serde(default)]
         projects: Vec<String>,
+        /// documents de la bibliothèque cités dans le contenu (clé `sources` du frontmatter)
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sources: Vec<String>,
+        /// citations de documents du contenu, vérifiées en fin de réponse (affichage seulement)
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        citations: Vec<Value>,
     },
     EditNote {
         path: String,
@@ -1178,7 +1184,15 @@ impl ChatService {
         for project in &projects {
             self.project_title(project)?;
         }
-        Ok(ChatProposal::CreateNote { note_type, title: title.trim().into(), date, content: content.unwrap_or_default(), projects })
+        Ok(ChatProposal::CreateNote {
+            note_type,
+            title: title.trim().into(),
+            date,
+            content: content.unwrap_or_default(),
+            projects,
+            sources: Vec::new(),
+            citations: Vec::new(),
+        })
     }
 
     /// Note visée par une proposition : chemin et titre.
@@ -1456,9 +1470,18 @@ impl ChatService {
                 let path = self.journal.append(&today_str, "## Notes", &format!("- {line}"))?;
                 Ok(json!({"path": path, "message": "Ligne ajoutée au journal"}))
             }
-            ChatProposal::CreateNote { note_type, title, date, content, projects } => {
+            ChatProposal::CreateNote { note_type, title, date, content, projects, sources, .. } => {
                 let date = date.as_deref().unwrap_or(&today_str);
                 let path = self.journal.create_note_with_body(note_type, title, Some(date), Some(content), projects)?;
+                // traçabilité : les documents cités sont listés dans le frontmatter
+                if !sources.is_empty() {
+                    let text = self.vault.read_text(&path)?;
+                    let (mut meta, body) = split_frontmatter(&text);
+                    let links: Vec<String> = sources.iter().map(|id| format!("[[{id}]]")).collect();
+                    meta.insert("sources".into(), json!(links));
+                    self.vault.write(&path, &join_frontmatter(&meta, body), None, false)?;
+                    self.index.upsert(&path)?;
+                }
                 Ok(json!({"path": path, "message": "Note créée"}))
             }
             ChatProposal::DeleteNote { path, .. } => {
@@ -1793,6 +1816,23 @@ impl ChatService {
         }
         let answer = Some(answer.trim().to_string()).filter(|a| !a.is_empty());
         let answer = answer.unwrap_or_else(|| "Je n'ai pas de réponse à proposer.".into());
+        // notes proposées (synthèses) : leurs citations de documents sont vérifiées comme celles de
+        // la réponse, et les documents cités iront dans la clé `sources` du frontmatter
+        if let Some(library) = &self.library {
+            for proposal in proposals.iter_mut() {
+                if let ChatProposal::CreateNote { content, sources, citations, .. } = proposal {
+                    *citations = library_agent::citations(library, content, &reads, &|name| {
+                        self.index.resolve_link(name).ok().flatten().is_some()
+                    });
+                    sources.clear();
+                    for id in citations.iter().filter_map(|c| c["document"].as_str()) {
+                        if !sources.iter().any(|s| s == id) {
+                            sources.push(id.to_string());
+                        }
+                    }
+                }
+            }
+        }
         let citations = match &self.library {
             Some(library) => library_agent::citations(library, &answer, &reads, &|name| {
                 self.index.resolve_link(name).ok().flatten().is_some()

@@ -19,18 +19,19 @@ const REUNION_TEMPLATE: &str = "---\ntype: reunion\ndate: {{date}}\nprojects: []
 const NOTE_TEMPLATE: &str = "---\ntype: {{type}}\ndate: {{date}}\ntags: []\n---\n\n# {{title}}\n";
 
 /// type de note -> dossier ; les réunions sont rangées par année
-const NOTE_FOLDERS: [(&str, &str); 7] = [
+const NOTE_FOLDERS: [(&str, &str); 8] = [
     ("reunion", "reunions/{year}"),
     ("sujet", "sujets"),
     ("projet", "projets"),
     ("personne", "personnes"),
     ("ressource", "ressources"),
     ("formation", "formations"),
+    ("synthese", "syntheses"),
     ("note", "sujets"),
 ];
 
 /// Types de notes que l'on peut créer (hors journal).
-pub const NOTE_KINDS: [&str; 7] = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation"];
+pub const NOTE_KINDS: [&str; 8] = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation", "synthese"];
 
 pub fn render(template: &str, values: &[(&str, &str)]) -> String {
     values.iter().fold(template.to_string(), |text, (key, value)| text.replace(&format!("{{{{{key}}}}}"), value))

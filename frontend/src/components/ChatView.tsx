@@ -226,6 +226,7 @@ function ProposalCard({ item, projects, onApply, onIgnore, onEdit, onOpen, onPro
           </label>
         )}
         {diff && diff.length > 0 && item.state !== "ignored" && <Diff diff={diff} />}
+        {p.kind === "create_note" && !!p.citations?.length && item.state !== "ignored" && <Sources citations={p.citations} />}
       </div>
       {item.state === "pending" && (
         <>

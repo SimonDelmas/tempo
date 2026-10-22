@@ -399,3 +399,48 @@ async fn recherche_hybride_par_les_mots_et_par_le_sens() {
     app.services.library.start(false).unwrap();
     assert_eq!(app.get("/api/library/status").await.json()["embedded"], status["total"]);
 }
+
+/// Synthèse multi-documents : l'agent lit, propose une note « synthese » dont les citations sont
+/// vérifiées ; validée, la note liste ses sources et apparaît sur la fiche des documents.
+#[tokio::test]
+async fn synthese_multi_documents() {
+    use tempo_core::chat::{ChatMessage, ChatProposal};
+    use tempo_core::llm::fake_tool_calls;
+
+    let content = "## Unités de mesure\n\nLes unités PCE deviennent PC [[Interface articles#Mapping]] ; le planning ne \
+                   traite pas des unités [[Planning]].\n\n## Calendrier\n\nLot 1 en mars [[Planning#Lot 2]].\n\n\
+                   ## Sources\n\n- [[Interface articles]]\n- [[Planning]]";
+    let llm = FakeLlm::new([
+        fake_tool_calls(&[("list_documents", json!({}))]),
+        fake_tool_calls(&[("read_document", json!({"document": "Interface articles", "section": "Mapping"})),
+                          ("read_document", json!({"document": "Planning"}))]),
+        fake_tool_calls(&[("propose_note_create",
+                           json!({"type": "synthese", "title": "Synthèse interface et planning", "content": content}))]),
+        "Je propose une synthèse en deux parties.".to_string(),
+    ]);
+    let app = TestApp::new(Some(llm.clone() as Arc<dyn Llm>), None);
+    app.upload("Interface articles.md", SPEC.as_bytes()).await;
+    app.upload("Planning.md", "# Planning\n\n## Lot 1\n\nMars.\n\n## Lot 2\n\nJuin.\n".as_bytes()).await;
+
+    let reply = app.services.chat.ask(&[ChatMessage::user("Fais une synthèse de ces documents")], None).unwrap();
+    let proposal = &reply["proposals"][0];
+    assert_eq!(proposal["kind"], "create_note");
+    assert_eq!(proposal["type"], "synthese");
+    assert_eq!(proposal["sources"], json!(["Interface articles", "Planning"]));
+    let verdict: Vec<(&str, bool)> = proposal["citations"].as_array().unwrap().iter()
+        .map(|c| (c["link"].as_str().unwrap(), c["verified"].as_bool().unwrap())).collect();
+    assert_eq!(verdict, vec![("Interface articles#Mapping", true), ("Planning", true), ("Planning#Lot 2", true), ("Interface articles", true)]);
+
+    // validée : note dans syntheses/, documents cités dans le frontmatter
+    let proposal: ChatProposal = serde_json::from_value(proposal.clone()).unwrap();
+    let applied = app.services.chat.apply(&proposal, None).unwrap();
+    let path = applied["path"].as_str().unwrap();
+    assert!(path.starts_with("syntheses/"), "{path}");
+    let text = app.services.vault.read_text(path).unwrap();
+    assert!(text.contains("type: synthese") && text.contains("sources: ['[[Interface articles]]', '[[Planning]]']"), "{text}");
+    assert!(text.contains("Les unités PCE deviennent PC [[Interface articles#Mapping]]"));
+    // la fiche du document montre la synthèse qui le cite
+    let detail = app.get(&format!("/api/library/docs/{}", q("Interface articles"))).await.json();
+    assert_eq!(detail["cited_in"][0]["path"], path);
+    assert_eq!(detail["cited_in"][0]["type"], "synthese");
+}

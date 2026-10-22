@@ -201,7 +201,8 @@ export default function App() {
     inbox: <InboxView config={config} revision={revision} onOpen={open} notify={notify} />,
     brouillons: <DraftsView config={config} files={files} current={params.d ?? null}
       onSelect={(d) => navigate(href("brouillons", null, { d }))} onOpen={open} notify={notify} />,
-    bibliotheque: <LibraryView config={config} revision={revision} params={params} onNavigate={libraryNav} notify={notify} />,
+    bibliotheque: <LibraryView config={config} revision={revision} params={params} onNavigate={libraryNav} notify={notify}
+      onAsk={(question) => { setChatPanel({ open: true }); chat.send(null, question); }} />,
   }[space];
 
   return (

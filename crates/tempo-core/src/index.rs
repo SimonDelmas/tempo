@@ -22,7 +22,7 @@ static DATE_PREFIX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(\d{4}-\
 static TITLE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)^#[ \t]+(.+?)\s*$").unwrap());
 static WORD_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\w+").unwrap());
 
-pub const FOLDER_TYPES: [(&str, &str); 15] = [
+pub const FOLDER_TYPES: [(&str, &str); 16] = [
     ("00-inbox", "inbox"),
     ("journal", "journal"),
     ("reunions", "reunion"),
@@ -34,6 +34,7 @@ pub const FOLDER_TYPES: [(&str, &str); 15] = [
     ("personnes", "personne"),
     ("ressources", "ressource"),
     ("formations", "formation"),
+    ("syntheses", "synthese"),
     ("rapports", "rapport"),
     ("comptes", "compte"),
     ("imputations", "imputation"),
@@ -345,6 +346,20 @@ impl Index {
                  WHERE l.target IN ({marks}) AND l.src != ? ORDER BY n.date DESC, n.path"
             ),
             params_from_iter(values),
+        )
+    }
+
+    /// Notes qui contiennent un lien `[[…]]` vers l'un de ces noms (sans casse), les plus
+    /// récentes d'abord : par exemple les synthèses qui citent un document de la bibliothèque.
+    pub fn linking_notes(&self, names: &[&str]) -> Result<Vec<NoteRow>> {
+        let keys: Vec<String> = names.iter().map(|n| n.trim().to_lowercase()).filter(|n| !n.is_empty()).collect();
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let marks = vec!["?"; keys.len()].join(",");
+        self.query(
+            &format!("SELECT DISTINCT n.* FROM links l JOIN notes n ON n.path = l.src WHERE l.target IN ({marks}) ORDER BY n.date DESC, n.path"),
+            params_from_iter(keys),
         )
     }
 

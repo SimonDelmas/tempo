@@ -3,6 +3,7 @@ import { DocumentMeta, fileSize, FORMAT_LABELS, library, LibraryDetail } from ".
 import { metaOf, ClassificationForm } from "./LibraryQueue";
 import { projectTitle, useProjects } from "./ProjectSelect";
 import { themeTitle, useTags, useThemes } from "./ThemeSelect";
+import { navigate, noteHref } from "../router";
 
 type Notify = (message: string, error?: boolean) => void;
 export type LibraryNav = (changes: Record<string, string | null>) => void;
@@ -255,6 +256,19 @@ export default function DocumentView({ id, page, section, revision, notify, onNa
             {detail.attached_to ? ` · pièce jointe de ${detail.attached_to.replace(/^\[\[|\]\]$/g, "")}` : ""}
             {" · "}lien : <code>[[{detail.id}]]</code>
           </div>
+          {detail.cited_in.length > 0 && (
+            <div className="small cited-in">
+              <span className="muted">Cité dans : </span>
+              {detail.cited_in.map((n, i) => (
+                <span key={n.path}>
+                  {i > 0 && ", "}
+                  <button className="link" title={n.path} onClick={() => navigate(noteHref(n.path))}>
+                    {n.title}{n.type === "synthese" ? " (synthèse)" : ""}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </section>
       )}
 

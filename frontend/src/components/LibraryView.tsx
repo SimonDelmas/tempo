@@ -80,13 +80,15 @@ function DocumentRow({ hit, themes, projects, onNavigate }: {
   );
 }
 
-function LibraryList({ revision, params, onNavigate, onPickFiles }: {
+function LibraryList({ revision, params, onNavigate, onPickFiles, onAsk }: {
   revision: number;
   params: LibraryParams;
   onNavigate: LibraryNav;
   onPickFiles: () => void;
+  onAsk: (question: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [synthesis, setSynthesis] = useState<string | null>(null);
   const [hits, setHits] = useState<LibraryHit[] | null>(null);
   const [themes] = useThemes(revision);
   const [projects] = useProjects(revision);
@@ -119,6 +121,8 @@ function LibraryList({ revision, params, onNavigate, onPickFiles }: {
     ["projet", "Projet", params.projet ? (params.projet === "-" ? "sans projet" : projectTitle(projects, params.projet)) : ""],
     ["tag", "Tag", params.tag ? `#${params.tag}` : ""],
   ];
+  /** périmètre de la synthèse : filtres actifs de la vue */
+  const scope = filters.filter(([, , label]) => label).map(([, name, label]) => `${name.toLowerCase()} ${label}`).join(", ");
   const row = (hit: LibraryHit, key: string) => (
     <DocumentRow key={key} hit={hit} themes={themes} projects={projects} onNavigate={onNavigate} />
   );
@@ -134,8 +138,30 @@ function LibraryList({ revision, params, onNavigate, onPickFiles }: {
           </span>
         ))}
         <span className="spacer" />
+        <button onClick={() => setSynthesis(synthesis === null ? "" : null)}
+          title="L'agent choisit les documents pertinents, les lit et propose une note de synthèse citée">
+          Demander une synthèse…
+        </button>
         <button onClick={onPickFiles}>Ajouter des fichiers…</button>
       </header>
+      {synthesis !== null && (
+        <section className="panel synthesis-request">
+          <label className="block-label">Sujet de la synthèse{scope ? ` (${scope})` : ""}
+            <textarea rows={2} autoFocus value={synthesis} onChange={(e) => setSynthesis(e.target.value)}
+              placeholder="ex. état des lieux des interfaces SAP : flux, risques, points ouverts" />
+          </label>
+          <div className="row">
+            <button className="primary" disabled={!synthesis.trim() && !scope} onClick={() => {
+              onAsk(`Rédige une synthèse croisant les documents de la bibliothèque${scope ? ` (${scope})` : ""} : ${
+                synthesis.trim() || "vue d'ensemble"}. Choisis les documents pertinents, lis les passages utiles, cite chaque `
+                + "information et propose la note de synthèse.");
+              setSynthesis(null);
+            }}>Envoyer à l'agent</button>
+            <button className="ghost" onClick={() => setSynthesis(null)}>Annuler</button>
+            <span className="muted small">La note n'est créée qu'après validation de sa proposition dans le chat.</span>
+          </div>
+        </section>
+      )}
       <div className="row">
         <input className="library-search" type="search" placeholder="Rechercher par titre, mot-clé ou tag…" value={query}
           onChange={(e) => setQuery(e.target.value)} autoFocus />
@@ -184,10 +210,12 @@ type Props = {
   params: LibraryParams;
   onNavigate: LibraryNav;
   notify: Notify;
+  /** pose une question à l'agent dans une nouvelle conversation (synthèse) */
+  onAsk: (question: string) => void;
 };
 
 /** Espace Bibliothèque : liste, file « À classer » ou fiche d'un document, et dépôt de fichiers partout. */
-export default function LibraryView({ config, revision, params, onNavigate, notify }: Props) {
+export default function LibraryView({ config, revision, params, onNavigate, notify, onAsk }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const depth = useRef(0);
@@ -204,7 +232,7 @@ export default function LibraryView({ config, revision, params, onNavigate, noti
   else if (params.vue === "a_classer") {
     content = <LibraryQueue config={config} revision={revision} notify={notify} onPickFiles={pick}
       onOpenDocument={(doc) => onNavigate({ doc })} />;
-  } else content = <LibraryList revision={revision} params={params} onNavigate={onNavigate} onPickFiles={pick} />;
+  } else content = <LibraryList revision={revision} params={params} onNavigate={onNavigate} onPickFiles={pick} onAsk={onAsk} />;
 
   return (
     <div className="library-view"

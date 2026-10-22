@@ -588,3 +588,5 @@ fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
 .chat-sources button.link:hover { color: var(--accent); }
 .page-marker.flash, .doc-heading.flash { animation: flash 1.6s ease-out; }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.synthesis-request { max-width: 980px; }
+.cited-in button.link { font-size: 12px; }

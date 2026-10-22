@@ -161,7 +161,11 @@ http://localhost:5173.
   main dans le dossier est proposé à l'ajout. Les documents se parcourent par thème ou par projet
   et se recherchent par titre, mot-clé ou tag (extrait, section et page). La fiche montre le texte
   converti (sommaire), le PDF d'origine, et permet d'ouvrir le fichier, de modifier le classement
-  ou de reconvertir. Un lien `[[nom du document]]` dans une note ouvre sa fiche. Dossier :
+  ou de reconvertir ; elle liste aussi les notes qui citent le document. « Demander une synthèse… »
+  (sujet libre, périmètre repris des filtres de la vue) confie à l'agent du chat le choix et la
+  lecture des documents : il propose une note de synthèse (dossier `syntheses/`) organisée par
+  thème, chaque affirmation citée et vérifiée, les documents cités listés dans sa clé `sources` ;
+  elle n'est créée qu'après validation. Un lien `[[nom du document]]` dans une note ouvre sa fiche. Dossier :
   `<vault>/bibliotheque/` (`TEMPO_LIBRARY`), pivots `<nom>.md` et fichiers d'origine dans
   `sources/` ; les thèmes sont des notes de `themes/`.
 - **Rapports** : rapport hebdomadaire en 4 sections, enregistré dans `rapports/hebdo/` ;

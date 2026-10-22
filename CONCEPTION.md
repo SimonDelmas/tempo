@@ -85,6 +85,7 @@ themes/              <slug>.md (thèmes des documents de la bibliothèque)
 bibliotheque/        documents : pivots Markdown + sources/ (dossier configurable, hors index des notes)
 rapports/hebdo/      AAAA-Sxx.md
 rapports/taches/     T-XXX-AAAA-MM-JJ.md
+syntheses/           synthèses multi-documents proposées par le chat (type synthese, clé sources)
 comptes/             <alias>.md (comptes d'imputation)
 imputations/AAAA/    AAAA-Sxx.md (heures saisies par jour et par compte)
 imputations/saisies.md  dates de dernière saisie dans l'outil de gestion des temps
@@ -259,7 +260,7 @@ modèle), les tâches citent la note (`créée depuis [[…]]`), la note les lis
 
 ## Chat
 
-Agent en boucle d'outils (10 tours au plus) par le tool calling natif de l'API OpenAI
+Agent en boucle d'outils (12 tours au plus) par le tool calling natif de l'API OpenAI
 (`tools`, `tool_calls`, messages `tool`), géré par Vibe y compris en streaming : à chaque tour
 le modèle appelle un ou plusieurs outils, ou répond en texte ; au dernier tour,
 `tool_choice: none` le force à répondre. Chaque outil est décrit par un schéma JSON dont les
@@ -459,9 +460,17 @@ sujet compris) : seuls sont retenus les passages au-dessus d'un seuil propre au 
 pour e5, `TEMPO_EMBED_MIN_SIMILARITY` pour l'ajuster au corpus réel) et à moins de 0,025 du
 meilleur. Pas de reranker pour l'instant.
 
-**Lots suivants** :
-- synthèses multi-documents enregistrées comme notes, documents choisis par l'agent (écart
-  assumé au principe 3) et note validée par la carte de proposition du chat.
+**Synthèses multi-documents** : demandées dans le chat ou par « Demander une synthèse… » de la
+bibliothèque (sujet saisi, périmètre repris des filtres de la vue : thème, projet, tag), qui ouvre
+une conversation. L'agent choisit lui-même les documents (écart assumé au principe 3 :
+la collecte n'est pas déterministe, mais chaque affirmation est citée et vérifiée), lit les
+passages utiles puis propose la note par `propose_note_create`, type `synthese` (dossier
+`syntheses/`), organisée par thème ou par question avec une section `## Sources`. Les
+citations de documents du contenu proposé sont vérifiées comme celles de la réponse (affichées
+sur la carte de proposition) et les documents cités vont dans `sources` (liens `[[…]]`) ; rien
+n'est écrit avant validation (principe 2). La fiche d'un document liste les notes qui le citent
+(`cited_in` : liens de l'index des notes vers son identifiant ou son titre). Le chat passe à 12
+tours d'outils pour laisser à l'agent le temps de parcourir plusieurs documents.
 
 ## Modèles
 
@@ -499,5 +508,5 @@ rapports, analyse inbox) sont configurables dans `.env`.
   (thèmes, projets, tags, résumé proposés puis validés), vue par thème ou projet, recherche
 - [x] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
 - [x] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
-- [ ] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
+- [x] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

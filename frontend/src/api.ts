@@ -266,6 +266,7 @@ export const TYPE_LABELS: Record<string, string> = {
   personne: "Personne",
   ressource: "Ressource",
   formation: "Formation",
+  synthese: "Synthèse",
   rapport: "Rapport",
   compte: "Compte",
   imputation: "Imputations",
@@ -301,7 +302,9 @@ export type ChatProposal =
   | { kind: "update_task"; task_id: string; title: string; status: string | null; priority: string | null;
       due: string | null; note: string; new_title?: string | null; project?: string | null; iteration?: string | null }
   | { kind: "journal"; line: string }
-  | { kind: "create_note"; type: string; title: string; date: string | null; content: string; projects?: string[] }
+  | { kind: "create_note"; type: string; title: string; date: string | null; content: string; projects?: string[];
+      /** documents cités (frontmatter sources) et citations vérifiées du contenu */
+      sources?: string[]; citations?: Citation[] }
   | { kind: "edit_note"; path: string; title: string; edits: { find: string; replace: string }[] }
   | { kind: "append_note"; path: string; title: string; section: string | null; text: string }
   | { kind: "update_meta"; path: string; title: string; set: Record<string, unknown>; remove: string[];
@@ -415,7 +418,7 @@ export const drafts = {
 };
 
 /** types de notes proposés à la création (NOTE_KINDS dans journal.rs) */
-export const NOTE_KINDS = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation"];
+export const NOTE_KINDS = ["note", "sujet", "reunion", "projet", "personne", "ressource", "formation", "synthese"];
 
 // --- bibliothèque de documents -------------------------------------------------
 
@@ -455,6 +458,8 @@ export type LibraryDetail = LibraryDocument & {
   outline: { level: number; title: string }[];
   /** document que celui-ci remplacerait (même nom de fichier) */
   replaces: string | null;
+  /** notes qui citent le document (synthèses…) */
+  cited_in: NoteSummary[];
 };
 
 export type UntrackedFile = { path: string; name: string; size: number; format: string | null };

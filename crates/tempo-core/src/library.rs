@@ -451,6 +451,8 @@ pub struct DocumentDetail {
     pub outline: Vec<OutlineEntry>,
     /// document que celui-ci remplacerait (même nom de fichier)
     pub replaces: Option<String>,
+    /// notes qui citent le document (synthèses…) : chemin, titre, type, date
+    pub cited_in: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1026,7 +1028,14 @@ impl LibraryService {
     pub fn detail(&self, id: &str) -> Result<DocumentDetail> {
         let (document, _, body) = self.read_pivot(id)?;
         let replaces = self.replaces_for(&document);
-        Ok(DocumentDetail { outline: outline(&body), content: body.trim_start_matches('\n').to_string(), document, replaces })
+        let cited_in = self.index.linking_notes(&[&document.id, &document.title])?.iter().map(|n| n.summary()).collect();
+        Ok(DocumentDetail {
+            outline: outline(&body),
+            content: body.trim_start_matches('\n').to_string(),
+            document,
+            replaces,
+            cited_in,
+        })
     }
 
     /// Fichier d'origine : chemin et format.
