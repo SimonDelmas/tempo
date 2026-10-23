@@ -29,7 +29,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    services.rs assemblage des services autour d'un vault
    config.rs   paramètres lus dans l'environnement et les fichiers .env
    vault.rs    lecture/écriture, frontmatter YAML (style PyYAML), conflits (hash), corbeille .trash/
-   index.rs    index SQLite (rusqlite) : notes, liens, recherche FTS5, watcher
+   index.rs    index SQLite (rusqlite) : notes, liens, recherche FTS5, colonnes des tâches, watcher
    tasks.rs    tâches = fichiers taches/T-XXX-*.md, historique, backlog (rang) et itérations hebdo
    journal.rs  notes quotidiennes et modèles
    inbox.rs    résumés mails/Teams → propositions → application
@@ -80,6 +80,7 @@ journal/AAAA/        AAAA-MM-JJ.md (sections Notes / Échanges / Fait aujourd'hu
 reunions/AAAA/       AAAA-MM-JJ-sujet.md
 echanges/AAAA/MM/    échanges traités (résumé + texte original)
 taches/              T-XXX-titre.md
+taches/archives/     tâches terminées archivées (même format, hors du backlog)
 projets/  sujets/  personnes/  ressources/  formations/
 themes/              <slug>.md (thèmes des documents de la bibliothèque)
 bibliotheque/        documents : pivots Markdown + sources/ (dossier configurable, hors index des notes)
@@ -136,8 +137,11 @@ imputations), chaque colonne de statut dans ce même ordre.
   une tâche sans rang vient après les autres, par identifiant. Le backlog et le board trient
   par ce seul rang : réordonner dans l'un réordonne l'autre. `POST /api/tasks/{id}/move`
   (`{before}` ou `{after}`) place la tâche avant `before`, sinon après `after`, sinon en fin
-  de backlog : rang médian entre les voisins, ou renumérotation du backlog par pas de 1000
-  quand il n'y a plus de place. Le déplacement ne change ni le projet ni le statut et n'est
+  de backlog : rang médian entre les voisins s'il y a de la place, sinon renumérotation de la
+  plus petite fenêtre autour du point d'insertion (élargie d'un cran de chaque côté jusqu'à
+  trouver assez d'écart, pas de 1000 au-delà d'un voisin sans rang), pour réécrire le moins
+  de fichiers possible. Une tâche créée prend le rang du dernier + 1000 quand tout le backlog
+  est ordonné (sinon elle reste sans rang, donc en fin). Le déplacement ne change ni le projet ni le statut et n'est
   pas tracé dans l'historique ; le board enchaîne `PATCH` (statut) et `move` (`before` la
   carte visée, ou `after` la dernière carte de la colonne).
 - Filtres et recherche du backlog : côté interface, sur la liste déjà chargée ; un glisser
@@ -157,6 +161,16 @@ imputations), chaque colonne de statut dans ce même ordre.
   `GET /api/tasks/board?week=`), les tâches non terminées dont la dernière semaine est passée
   reçoivent la semaine courante en plus (« reportée de 2026-S42 en 2026-S43 »). Le board d'une
   semaine passée montre donc tout ce qui y était planifié, avec le statut actuel.
+- **Archives** : `POST /api/tasks/archive` déplace les tâches terminées dans
+  `taches/archives/` (historique « archivée ») ; elles sortent du backlog et de son ordre mais
+  restent dans `GET /api/tasks`, les boards, les rapports et les liens (résolus par
+  l'identifiant). Un `PATCH` qui les repasse à un statut ouvert les ramène dans `taches/`
+  (« sortie des archives »). `archived` est exposé dans l'API.
+- **Requêtes** : l'index tient une table `tasks` (statut, priorité, projet, échéance, rang,
+  archivée) et une table `task_weeks` (semaines planifiées), remplies à l'indexation des
+  notes de type `tache` et vidées avec elles : les listes, le backlog et les boards filtrent
+  et trient en SQL (`Index::tasks(TaskQuery)`). Ce sont des caches, les fichiers restent la
+  source de vérité.
 
 ## Flux Inbox (mails / Teams)
 
@@ -509,4 +523,6 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Bibliothèque (lot 2) : outils de l'agent et questions-réponses avec citations vérifiées
 - [x] Bibliothèque (lot 3) : embeddings locaux et recherche hybride (RRF)
 - [x] Bibliothèque (lot 4) : synthèses multi-documents enregistrées comme notes
+- [x] Tâches : colonnes dédiées dans l'index (requêtes SQL), renumérotation locale des rangs,
+  archivage des tâches terminées dans `taches/archives/`
 - [ ] Imputations : jours fériés et absences pris en compte dans la complétude

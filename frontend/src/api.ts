@@ -23,6 +23,8 @@ export type Task = {
   iterations: string[];
   /** dernière semaine planifiée */
   iteration: string | null;
+  /** rangée dans taches/archives/ (hors du backlog) */
+  archived: boolean;
 };
 
 /** Board d'une semaine : tâches qui y ont été planifiées, avec leur statut actuel. */
@@ -199,6 +201,8 @@ export const api = {
   updateTask: (id: string, changes: Record<string, string | null>, note?: string) =>
     request<Task>("PATCH", `/api/tasks/${encodeURIComponent(id)}`, { changes, note }),
   backlog: () => request<Backlog>("GET", "/api/tasks/backlog"),
+  /** range les tâches terminées dans taches/archives/ */
+  archiveTasks: () => request<{ archived: string[] }>("POST", "/api/tasks/archive"),
   board: (week: string | null) => request<Board>("GET", "/api/tasks/board" + q({ week: week ?? "" })),
   /** place la tâche dans l'ordre global (backlog et board) : avant before, sinon après after, sinon à la fin */
   moveTask: (id: string, where: { before?: string | null; after?: string | null }) =>

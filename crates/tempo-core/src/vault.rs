@@ -446,6 +446,23 @@ impl Vault {
         Ok(())
     }
 
+    /// Déplace une note ; refusé si la destination existe déjà.
+    pub fn rename(&self, from: &str, to: &str) -> Result<()> {
+        let source = self.resolve(from)?;
+        let target = self.resolve(to)?;
+        if !source.is_file() {
+            return Err(not_found(format!("Note introuvable : {from}")));
+        }
+        if target.exists() {
+            return Err(vault_err(format!("Le fichier existe déjà : {to}")));
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&source, &target)?;
+        Ok(())
+    }
+
     pub fn unique_path(&self, folder: &str, stem: &str) -> Result<String> {
         let folder = folder.trim_matches('/');
         let make = |suffix: String| {

@@ -91,6 +91,16 @@ export default function BacklogView({ config, revision, project, onProject, proj
     reload();
   };
 
+  const archive = async () => {
+    try {
+      const { archived } = await api.archiveTasks();
+      notify(archived.length ? `${archived.length} tâche(s) archivée(s) : ${archived.join(", ")}` : "Aucune tâche terminée à archiver");
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+    reload();
+  };
+
   const plan = (task: Task, week: string) => update(task, { iteration: week || null },
     week ? `${task.id} planifiée en ${week}` : `${task.id} retirée de ${task.iteration}`);
 
@@ -149,6 +159,10 @@ export default function BacklogView({ config, revision, project, onProject, proj
         <label className="check">
           <input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} /> Terminées
         </label>
+        <button disabled={!backlog.tasks.some((t) => t.status === "terminee")} onClick={archive}
+          title="Range les tâches terminées dans taches/archives/ : elles restent liées et visibles dans les boards passés">
+          Archiver les terminées
+        </button>
       </div>
 
       <table className="backlog" onDragEnd={endDrag}>

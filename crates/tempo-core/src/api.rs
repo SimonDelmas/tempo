@@ -305,6 +305,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         // tâches
         .route("/api/tasks", get(list_tasks).post(create_task))
         .route("/api/tasks/backlog", get(task_backlog))
+        .route("/api/tasks/archive", post(archive_tasks))
         .route("/api/tasks/board", get(task_board))
         .route("/api/tasks/{task_id}", get(get_task).patch(update_task))
         .route("/api/tasks/{task_id}/move", post(move_task))
@@ -558,6 +559,11 @@ async fn task_board(State(s): State<AppState>, Query(q): Query<WeekParam>) -> Ap
         s.tasks.board(q.week.as_deref(), None)
     })
     .await
+}
+
+/// Range les tâches terminées dans `taches/archives/`.
+async fn archive_tasks(State(s): State<AppState>) -> ApiResult {
+    blocking(move || Ok(json!({"archived": s.tasks.archive_done(None)?}))).await
 }
 
 async fn move_task(State(s): State<AppState>, Path(task_id): Path<String>, JsonBody(body): JsonBody<TaskMove>) -> ApiResult {

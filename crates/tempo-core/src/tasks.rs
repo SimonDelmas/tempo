@@ -4,6 +4,10 @@
 //! sert au backlog et aux colonnes du board ; le projet tient lieu de feature) et `iterations` liste les semaines (`2026-S43`) où la
 //! tâche a été planifiée — la dernière est la semaine en cours de planification, les
 //! précédentes gardent l'historique des boards.
+//!
+//! Les tâches terminées peuvent être rangées dans `taches/archives/` : elles sortent du backlog
+//! mais restent liées, dans les boards passés et dans les rapports. Les listes passent par les
+//! colonnes de la table `tasks` de l'index (cache reconstructible des fichiers).
 
 use std::sync::{Arc, LazyLock};
 
@@ -13,7 +17,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::error::{not_found, vault_err, Result};
-use crate::index::{Index, NoteRow};
+use crate::index::{Index, NoteRow, TaskQuery};
 use crate::util::{parse_date, today, week_bounds, week_label};
 use crate::vault::{
     append_to_section, join_frontmatter, meta_str, section_lines, slugify, split_frontmatter, value_str, Meta, Vault,
@@ -24,7 +28,9 @@ pub const PRIORITIES: [&str; 3] = ["basse", "normale", "haute"];
 pub const HISTORY_HEADING: &str = "## Historique";
 pub const EDITABLE_FIELDS: [&str; 6] = ["title", "status", "priority", "project", "due", "iteration"];
 const FOLDER: &str = "taches";
-/// écart entre deux rangs consécutifs lors d'une renumérotation
+/// dossier des tâches archivées
+pub const ARCHIVE_FOLDER: &str = "taches/archives";
+/// écart entre deux rangs consécutifs (création, renumérotation)
 const RANK_STEP: i64 = 1000;
 
 static HISTORY_LINE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-\s*(\d{4}-\d{2}-\d{2})\s*:\s*(.+)$").unwrap());
@@ -61,8 +67,18 @@ pub fn week_offset(label: &str, offset: i64) -> Result<String> {
     Ok(week_label(week_start(label)? + Duration::weeks(offset)))
 }
 
+/// Tâche rangée dans `taches/archives/`.
+pub fn is_archived_path(rel: &str) -> bool {
+    rel.starts_with(&format!("{ARCHIVE_FOLDER}/"))
+}
+
+/// Rang du backlog dans le frontmatter (`rank`, entier ou décimal tronqué).
+pub fn meta_rank(meta: &Meta) -> Option<i64> {
+    meta.get("rank").and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+}
+
 /// Semaines planifiées dans le frontmatter (`iterations`, liste ou valeur seule).
-fn meta_iterations(meta: &Meta) -> Vec<String> {
+pub fn meta_iterations(meta: &Meta) -> Vec<String> {
     match meta.get("iterations") {
         Some(Value::Array(items)) => items.iter().map(value_str).filter(|s| !s.is_empty()).collect(),
         Some(Value::String(s)) if !s.is_empty() => vec![s.clone()],
@@ -132,6 +148,8 @@ pub struct Task {
     pub iterations: Vec<String>,
     /// dernière semaine planifiée
     pub iteration: Option<String>,
+    /// rangée dans `taches/archives/`
+    pub archived: bool,
 }
 
 impl Task {
@@ -146,9 +164,10 @@ impl Task {
             due: meta_str(meta, "due"),
             created: meta_str(meta, "created"),
             path: note.path.clone(),
-            rank: meta.get("rank").and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))),
+            rank: meta_rank(meta),
             iteration: meta_iterations(meta).last().cloned(),
             iterations: meta_iterations(meta),
+            archived: is_archived_path(&note.path),
         }
     }
 
@@ -210,37 +229,40 @@ pub struct Backlog {
     pub tasks: Vec<Task>,
 }
 
-/// Ordre du backlog : rang croissant, tâches jamais ordonnées à la fin par identifiant.
-fn backlog_order(a: &Task, b: &Task) -> std::cmp::Ordering {
-    (a.rank.is_none(), a.rank, &a.id).cmp(&(b.rank.is_none(), b.rank, &b.id))
-}
-
-/// Rangs à écrire pour insérer `moved` à la position `at` d'un groupe ordonné (qui ne le
-/// contient pas) : le rang médian entre les voisins s'il y a de la place, sinon une
-/// renumérotation du groupe par pas de [`RANK_STEP`] (seuls les rangs modifiés sont renvoyés,
-/// toujours celui de `moved`).
+/// Rangs à écrire pour insérer `moved` à la position `at` d'un groupe dans l'ordre du backlog
+/// (qui ne le contient pas ; les tâches sans rang sont à la fin). On cherche la plus petite
+/// fenêtre autour de `at` qu'on peut renuméroter sans toucher au reste : vide (rang médian
+/// entre les voisins) s'il y a de la place, puis élargie d'un cran de chaque côté. Une fenêtre
+/// convient si la tâche qui la précède a un rang (ou s'il n'y en a pas) et s'il reste assez
+/// d'écart jusqu'à la tâche qui la suit (sans rang ou absente : pas de limite). Seuls les rangs
+/// modifiés sont renvoyés, toujours celui de `moved`.
 pub fn rank_changes(group: &[(String, Option<i64>)], moved: &str, at: usize) -> Vec<(String, i64)> {
-    let prev = at.checked_sub(1).map(|i| group[i].1);
-    let next = group.get(at).map(|(_, rank)| *rank);
-    let free = match (prev, next) {
-        (None, None) => Some(RANK_STEP),
-        (Some(Some(p)), None) => Some(p + RANK_STEP),
-        (None, Some(Some(n))) => Some(n - RANK_STEP),
-        (Some(Some(p)), Some(Some(n))) if n - p > 1 => Some(p + (n - p) / 2),
-        _ => None,
-    };
-    if let Some(rank) = free {
-        return vec![(moved.to_string(), rank)];
+    for k in 0..=group.len() {
+        let (start, end) = (at.saturating_sub(k), (at + k).min(group.len()));
+        let low = match start.checked_sub(1).map(|i| group[i].1) {
+            None => None,
+            Some(Some(rank)) => Some(rank),
+            Some(None) => continue,
+        };
+        let high = group.get(end).and_then(|(_, rank)| *rank);
+        let count = (end - start + 1) as i64;
+        let ranks: Vec<i64> = match (low, high) {
+            (Some(l), Some(h)) if h - l > count => (1..=count).map(|i| l + (h - l) / (count + 1) * i).collect(),
+            (Some(_), Some(_)) => continue,
+            (Some(l), None) => (1..=count).map(|i| l + RANK_STEP * i).collect(),
+            (None, Some(h)) => (1..=count).map(|i| h - RANK_STEP * (count + 1 - i)).collect(),
+            (None, None) => (1..=count).map(|i| RANK_STEP * i).collect(),
+        };
+        let mut window: Vec<(&str, Option<i64>)> = group[start..end].iter().map(|(id, rank)| (id.as_str(), *rank)).collect();
+        window.insert(at - start, (moved, None));
+        return window
+            .into_iter()
+            .zip(ranks)
+            .filter(|((id, old), rank)| *id == moved || *old != Some(*rank))
+            .map(|((id, _), rank)| (id.to_string(), rank))
+            .collect();
     }
-    let mut order: Vec<(&str, Option<i64>)> = group.iter().map(|(id, rank)| (id.as_str(), *rank)).collect();
-    order.insert(at, (moved, None));
-    order
-        .into_iter()
-        .enumerate()
-        .map(|(i, (id, old))| (id, old, (i as i64 + 1) * RANK_STEP))
-        .filter(|(id, old, rank)| *id == moved || *old != Some(*rank))
-        .map(|(id, _, rank)| (id.to_string(), rank))
-        .collect()
+    unreachable!("la fenêtre couvrant tout le groupe convient toujours")
 }
 
 fn day_or_today(today_str: Option<&str>) -> Result<NaiveDate> {
@@ -273,16 +295,14 @@ impl TaskService {
         TaskService { vault, index }
     }
 
+    /// Tâches de l'index selon `query`.
+    pub fn query(&self, query: &TaskQuery) -> Result<Vec<Task>> {
+        Ok(self.index.tasks(query)?.iter().map(Task::from_note).collect())
+    }
+
+    /// Tâches par identifiant, archivées comprises.
     pub fn list(&self, status: Option<&str>, project: Option<&str>) -> Result<Vec<Task>> {
-        let mut tasks: Vec<Task> = self.index.by_type("tache")?.iter().map(Task::from_note).collect();
-        if let Some(status) = status.filter(|s| !s.is_empty()) {
-            tasks.retain(|t| t.status == status);
-        }
-        if let Some(project) = project.filter(|p| !p.is_empty()) {
-            tasks.retain(|t| t.project.as_deref() == Some(project));
-        }
-        tasks.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(tasks)
+        self.query(&TaskQuery { status, project, archived: true, ..Default::default() })
     }
 
     pub fn all(&self) -> Result<Vec<Task>> {
@@ -290,7 +310,12 @@ impl TaskService {
     }
 
     pub fn open_tasks(&self) -> Result<Vec<Task>> {
-        Ok(self.all()?.into_iter().filter(|t| is_open(&t.status)).collect())
+        self.query(&TaskQuery { open: true, archived: true, ..Default::default() })
+    }
+
+    /// Tâches non archivées dans l'ordre du backlog.
+    fn backlog_tasks(&self) -> Result<Vec<Task>> {
+        self.query(&TaskQuery { backlog_order: true, ..Default::default() })
     }
 
     pub fn path_of(&self, task_id: &str) -> Result<String> {
@@ -315,11 +340,13 @@ impl TaskService {
             collect(&note.alias);
             collect(&note.stem);
         }
-        if let Ok(entries) = std::fs::read_dir(self.vault.root.join(FOLDER)) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("T-") && name.ends_with(".md") {
-                    collect(&name[..name.len() - 3]);
+        for folder in [FOLDER, ARCHIVE_FOLDER] {
+            if let Ok(entries) = std::fs::read_dir(self.vault.root.join(folder)) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with("T-") && name.ends_with(".md") {
+                        collect(&name[..name.len() - 3]);
+                    }
                 }
             }
         }
@@ -350,6 +377,13 @@ impl TaskService {
             meta.insert("due".into(), parse_date(&due)?.to_string().into());
         }
         meta.insert("created".into(), today_str.clone().into());
+        // en fin de backlog, avec un écart qui laisse la place d'y insérer d'autres tâches ; s'il
+        // reste des tâches sans rang, la nouvelle (identifiant le plus grand) les suit déjà
+        let backlog = self.backlog_tasks()?;
+        if backlog.iter().all(|t| t.rank.is_some()) {
+            let last = backlog.iter().filter_map(|t| t.rank).max().unwrap_or(0);
+            meta.insert("rank".into(), Value::from(last + RANK_STEP));
+        }
         let created = match new.origin.filter(|o| !o.is_empty()) {
             Some(origin) => format!("créée depuis [[{origin}]]"),
             None => "créée".into(),
@@ -373,6 +407,8 @@ impl TaskService {
         check_value("priority", lookup("priority"), &PRIORITIES)?;
         let today_str = today_str.map(String::from).unwrap_or_else(|| today().to_string());
         let current = week_label(parse_date(&today_str)?);
+        let archived = is_archived_path(&self.path_of(task_id)?);
+        let mut reopened = false;
         self.edit(task_id, &today_str, |meta| {
             let old_status = meta_str(meta, "status").unwrap_or_else(|| "a_faire".into());
             let mut history = Vec::new();
@@ -393,12 +429,47 @@ impl TaskService {
             if lookup("status").is_some() && new_status != old_status {
                 history.insert(0, format!("statut {old_status} → {new_status}"));
             }
+            // une tâche archivée qui reprend revient dans le backlog
+            reopened = archived && is_open(&new_status);
+            if reopened {
+                history.push("sortie des archives".into());
+            }
             if let Some(note) = note.map(str::trim).filter(|n| !n.is_empty()) {
                 history.push(note.to_string());
             }
             Ok(history)
         })?;
+        if reopened {
+            self.relocate(task_id, FOLDER)?;
+        }
         self.get(task_id)
+    }
+
+    /// Range le fichier d'une tâche dans `folder` sous le même nom ; les liens `[[T-XXX]]`
+    /// passent par l'identifiant et restent valides.
+    fn relocate(&self, task_id: &str, folder: &str) -> Result<()> {
+        let path = self.path_of(task_id)?;
+        let name = path.rsplit('/').next().unwrap_or(&path);
+        let target = format!("{folder}/{name}");
+        if target != path {
+            self.vault.rename(&path, &target)?;
+            self.index.remove(&path)?;
+            self.index.upsert(&target)?;
+        }
+        Ok(())
+    }
+
+    /// Range dans `taches/archives/` les tâches terminées encore dans le backlog ; elles
+    /// gardent leurs liens, leur historique et leur place dans les boards passés. Renvoie les
+    /// identifiants archivés.
+    pub fn archive_done(&self, today_str: Option<&str>) -> Result<Vec<String>> {
+        let today_str = today_str.map(String::from).unwrap_or_else(|| today().to_string());
+        let done = self.query(&TaskQuery { status: Some("terminee"), ..Default::default() })?;
+        for task in &done {
+            self.edit(&task.id, &today_str, |_| Ok(vec!["archivée".into()]))?;
+            self.relocate(&task.id, ARCHIVE_FOLDER)?;
+        }
+        Ok(done.into_iter().map(|t| t.id).collect())
     }
 
     /// Modifie le frontmatter d'une tâche ; `change` renvoie les lignes d'historique à tracer.
@@ -421,8 +492,7 @@ impl TaskService {
     /// Backlog ordonné, avec la semaine courante et les huit semaines planifiables.
     pub fn backlog(&self, today_str: Option<&str>) -> Result<Backlog> {
         let day = day_or_today(today_str)?;
-        let mut tasks = self.all()?;
-        tasks.sort_by(backlog_order);
+        let tasks = self.backlog_tasks()?;
         let weeks = (0..8)
             .map(|i| {
                 let start = week_bounds(day).0 + Duration::weeks(i);
@@ -432,18 +502,17 @@ impl TaskService {
         Ok(Backlog { current: week_label(day), weeks, tasks })
     }
 
-    /// Board d'une semaine (la semaine courante par défaut), dans l'ordre du backlog.
+    /// Board d'une semaine (la semaine courante par défaut), dans l'ordre du backlog ; les
+    /// tâches archivées y restent.
     pub fn board(&self, week: Option<&str>, today_str: Option<&str>) -> Result<Board> {
         let current = week_label(day_or_today(today_str)?);
         let week = week.filter(|w| !w.is_empty()).unwrap_or(&current).to_string();
         let start = week_start(&week)?;
-        let all = self.all()?;
-        let mut weeks: Vec<String> = all.iter().flat_map(|t| t.iterations.iter().cloned()).collect();
+        let mut weeks = self.index.task_weeks()?;
         weeks.extend([current.clone(), week.clone()]);
         weeks.sort();
         weeks.dedup();
-        let mut tasks: Vec<Task> = all.into_iter().filter(|t| t.iterations.contains(&week)).collect();
-        tasks.sort_by(backlog_order);
+        let tasks = self.query(&TaskQuery { week: Some(&week), archived: true, backlog_order: true, ..Default::default() })?;
         Ok(Board {
             previous: week_offset(&week, -1)?,
             next: week_offset(&week, 1)?,
@@ -481,8 +550,7 @@ impl TaskService {
     /// pas. Les rangs sont renumérotés quand il n'y a plus de place entre les voisins.
     pub fn move_task(&self, task_id: &str, before: Option<&str>, after: Option<&str>) -> Result<Vec<Task>> {
         let task = self.get(task_id)?.task;
-        let mut others: Vec<Task> = self.all()?.into_iter().filter(|t| t.id != task.id).collect();
-        others.sort_by(backlog_order);
+        let others: Vec<Task> = self.backlog_tasks()?.into_iter().filter(|t| t.id != task.id).collect();
         let position = |id: &str| {
             others.iter().position(|t| t.id == id).ok_or_else(|| not_found(format!("Tâche introuvable : {id}")))
         };
@@ -555,6 +623,15 @@ mod tests {
             rank_changes(&unranked, "x", 1),
             [("t0".to_string(), 1000), ("x".to_string(), 2000), ("t1".to_string(), 3000)]
         );
+        // renumérotation locale : seuls les voisins serrés bougent
+        let local = group(&[Some(1000), Some(1001), Some(1002), Some(5000)]);
+        assert_eq!(
+            rank_changes(&local, "x", 2),
+            [("t1".to_string(), 2000), ("x".to_string(), 3000), ("t2".to_string(), 4000)]
+        );
+        // après une tâche ordonnée, les tâches sans rang qui suivent ne sont pas touchées
+        let tail = group(&[Some(1000), None, None]);
+        assert_eq!(rank_changes(&tail, "x", 1), [("x".to_string(), 2000)]);
     }
 
     #[test]

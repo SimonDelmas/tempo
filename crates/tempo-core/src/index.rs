@@ -14,7 +14,8 @@ use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::Result;
-use crate::vault::{content_hash, split_frontmatter, truthy, value_str, Meta, Vault};
+use crate::tasks;
+use crate::vault::{content_hash, meta_str, split_frontmatter, truthy, value_str, Meta, Vault};
 
 static WIKILINK_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[\[([^\]\|#\n]+)(?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\]").unwrap());
@@ -52,7 +53,31 @@ CREATE INDEX IF NOT EXISTS links_src ON links(src);
 CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     path UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2'
 );
+CREATE TABLE IF NOT EXISTS tasks(
+    path TEXT PRIMARY KEY, id TEXT, status TEXT, priority TEXT, project TEXT, due TEXT,
+    rank INTEGER, archived INTEGER
+);
+CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project);
+CREATE TABLE IF NOT EXISTS task_weeks(path TEXT, week TEXT);
+CREATE INDEX IF NOT EXISTS task_weeks_week ON task_weeks(week);
+CREATE INDEX IF NOT EXISTS task_weeks_path ON task_weeks(path);
 ";
+
+/// Critères de [`Index::tasks`] ; chaque critère vide est ignoré.
+#[derive(Debug, Clone, Default)]
+pub struct TaskQuery<'a> {
+    pub status: Option<&'a str>,
+    pub project: Option<&'a str>,
+    /// tâches non terminées seulement
+    pub open: bool,
+    /// tâches planifiées sur cette semaine (`2026-S43`)
+    pub week: Option<&'a str>,
+    /// inclut les tâches rangées dans `taches/archives/`
+    pub archived: bool,
+    /// ordre du backlog (rang croissant, tâches sans rang à la fin) plutôt que par identifiant
+    pub backlog_order: bool,
+}
 
 /// Cibles des liens `[[…]]` d'un texte, sans doublon, triées.
 pub fn extract_links(text: &str) -> Vec<String> {
@@ -197,7 +222,9 @@ impl Index {
         let files = self.vault.list_files();
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
-        tx.execute_batch("DELETE FROM notes; DELETE FROM links; DELETE FROM notes_fts;")?;
+        tx.execute_batch(
+            "DELETE FROM notes; DELETE FROM links; DELETE FROM notes_fts; DELETE FROM tasks; DELETE FROM task_weeks;",
+        )?;
         for rel in &files {
             // un fichier illisible (encodage…) n'empêche pas l'indexation des autres
             let _ = self.upsert_in(&tx, rel);
@@ -230,6 +257,8 @@ impl Index {
         conn.execute("DELETE FROM notes WHERE path = ?", [rel])?;
         conn.execute("DELETE FROM links WHERE src = ?", [rel])?;
         conn.execute("DELETE FROM notes_fts WHERE path = ?", [rel])?;
+        conn.execute("DELETE FROM tasks WHERE path = ?", [rel])?;
+        conn.execute("DELETE FROM task_weeks WHERE path = ?", [rel])?;
         Ok(())
     }
 
@@ -262,6 +291,27 @@ impl Index {
             conn.execute("INSERT INTO links VALUES (?,?)", params![rel, target.to_lowercase()])?;
         }
         conn.execute("INSERT INTO notes_fts VALUES (?,?,?)", params![rel, title, body])?;
+        if kind == "tache" && infer_type(rel) != "modele" {
+            let id = if alias.is_empty() { &stem } else { &alias };
+            let status = meta_str(&meta, "status").unwrap_or_else(|| "a_faire".into());
+            let priority = meta_str(&meta, "priority").unwrap_or_else(|| "normale".into());
+            conn.execute(
+                "INSERT INTO tasks VALUES (?,?,?,?,?,?,?,?)",
+                params![
+                    rel,
+                    id,
+                    status,
+                    priority,
+                    meta_str(&meta, "project"),
+                    meta_str(&meta, "due"),
+                    tasks::meta_rank(&meta),
+                    tasks::is_archived_path(rel)
+                ],
+            )?;
+            for week in tasks::meta_iterations(&meta) {
+                conn.execute("INSERT INTO task_weeks VALUES (?,?)", params![rel, week])?;
+            }
+        }
         Ok(())
     }
 
@@ -312,6 +362,40 @@ impl Index {
 
     pub fn by_type(&self, kind: &str) -> Result<Vec<NoteRow>> {
         self.list_notes(Some(kind), None, None)
+    }
+
+    /// Tâches filtrées et triées par SQL sur les colonnes de la table `tasks`.
+    pub fn tasks(&self, q: &TaskQuery) -> Result<Vec<NoteRow>> {
+        let mut sql = String::from("SELECT n.* FROM notes n JOIN tasks t ON t.path = n.path WHERE 1=1");
+        let mut values: Vec<&str> = Vec::new();
+        if let Some(status) = q.status.filter(|s| !s.is_empty()) {
+            sql.push_str(" AND t.status = ?");
+            values.push(status);
+        }
+        if let Some(project) = q.project.filter(|p| !p.is_empty()) {
+            sql.push_str(" AND t.project = ?");
+            values.push(project);
+        }
+        if q.open {
+            sql.push_str(" AND t.status != 'terminee'");
+        }
+        if let Some(week) = q.week.filter(|w| !w.is_empty()) {
+            sql.push_str(" AND EXISTS (SELECT 1 FROM task_weeks w WHERE w.path = t.path AND w.week = ?)");
+            values.push(week);
+        }
+        if !q.archived {
+            sql.push_str(" AND NOT t.archived");
+        }
+        sql.push_str(if q.backlog_order { " ORDER BY t.rank IS NULL, t.rank, t.id" } else { " ORDER BY t.id" });
+        self.query(&sql, params_from_iter(values))
+    }
+
+    /// Semaines portées par au moins une tâche, triées.
+    pub fn task_weeks(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT DISTINCT week FROM task_weeks ORDER BY week")?;
+        let weeks = stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(weeks)
     }
 
     pub fn modified_between(&self, start_ts: f64, end_ts: f64) -> Result<Vec<NoteRow>> {

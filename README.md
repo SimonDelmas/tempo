@@ -125,6 +125,10 @@ http://localhost:5173.
     colonne (feature, statut, priorité, itération, échéance) et recherche dans les
     identifiants, titres, features et itérations ; « Effacer les filtres » les retire. Le
     filtre Feature est le même que celui de l'en-tête de l'espace (option « Sans projet »).
+    « Archiver les terminées » range les tâches terminées dans `taches/archives/` : elles
+    sortent du backlog mais gardent leurs liens, leur historique et leur place dans les boards
+    des semaines passées et dans les rapports. Repasser une tâche archivée à un statut non
+    terminé la ramène dans le backlog.
   - **Board** : kanban par statut d'une semaine, la semaine courante par défaut ; flèches et
     liste pour afficher les autres semaines. Les cartes suivent l'ordre du backlog : glisser
     une carte devant une autre (ou en bas d'une colonne) la replace dans cet ordre, et la

@@ -61,22 +61,31 @@ fn move_orders_all_tasks_shared_with_board() {
     // sans rang : ordre des identifiants
     assert_eq!(ids(&c.tasks.backlog(Some("2026-10-19")).unwrap().tasks), ["T-001", "T-002", "T-003", "T-004"]);
 
-    // la dernière tâche passe en tête : tout le backlog est renuméroté
+    // la dernière tâche passe en tête : elle seule reçoit un rang, les autres restent sans
+    // rang (donc après) et leurs fichiers ne changent pas
+    let before_text = c.vault.read_text(&c.tasks.path_of("T-003").unwrap()).unwrap();
     let backlog = c.tasks.move_task("T-004", Some("T-001"), None).unwrap();
     assert_eq!(ids(&backlog), ["T-004", "T-001", "T-002", "T-003"]);
-    assert!(backlog.iter().all(|t| t.rank.is_some()));
+    let ranks: Vec<Option<i64>> = backlog.iter().map(|t| t.rank).collect();
+    assert_eq!(ranks, [Some(1000), None, None, None]);
+    assert_eq!(c.vault.read_text(&c.tasks.path_of("T-003").unwrap()).unwrap(), before_text);
     let text = c.vault.read_text(&c.tasks.path_of("T-004").unwrap()).unwrap();
     let (meta, _) = split_frontmatter(&text);
     assert_eq!(meta["project"], "sap", "le projet ne change pas");
     assert!(!text.contains("projet sap"), "pas d'historique pour un simple déplacement");
 
+    // insertion parmi des tâches sans rang : les voisines prennent un rang pour garder l'ordre
+    let backlog = c.tasks.move_task("T-003", None, Some("T-001")).unwrap();
+    assert_eq!(ids(&backlog), ["T-004", "T-001", "T-003", "T-002"]);
+    assert!(backlog.iter().all(|t| t.rank.is_some()));
+
     // une place libre entre deux rangs : seul le fichier déplacé change
-    let before_text = c.vault.read_text(&c.tasks.path_of("T-002").unwrap()).unwrap();
-    assert_eq!(ids(&c.tasks.move_task("T-003", None, Some("T-001")).unwrap()), ["T-004", "T-001", "T-003", "T-002"]);
-    assert_eq!(c.vault.read_text(&c.tasks.path_of("T-002").unwrap()).unwrap(), before_text);
+    let before_text = c.vault.read_text(&c.tasks.path_of("T-003").unwrap()).unwrap();
+    assert_eq!(ids(&c.tasks.move_task("T-002", Some("T-003"), None).unwrap()), ["T-004", "T-001", "T-002", "T-003"]);
+    assert_eq!(c.vault.read_text(&c.tasks.path_of("T-003").unwrap()).unwrap(), before_text);
 
     // sans repère : fin du backlog ; repère inconnu : 404
-    assert_eq!(ids(&c.tasks.move_task("T-004", None, None).unwrap()), ["T-001", "T-003", "T-002", "T-004"]);
+    assert_eq!(ids(&c.tasks.move_task("T-004", None, None).unwrap()), ["T-001", "T-002", "T-003", "T-004"]);
     assert!(c.tasks.move_task("T-004", Some("T-999"), None).is_err());
 
     // le board d'une semaine reprend le même ordre
@@ -85,6 +94,77 @@ fn move_orders_all_tasks_shared_with_board() {
     }
     c.tasks.move_task("T-004", Some("T-001"), None).unwrap();
     assert_eq!(ids(&c.tasks.board(None, Some("2026-10-21")).unwrap().tasks), ["T-004", "T-001", "T-003"]);
+}
+
+#[test]
+fn created_task_gets_rank_once_backlog_is_ranked() {
+    let c = common::ctx();
+    let new = |title: &str| tempo_core::tasks::NewTask { title: title.into(), ..Default::default() };
+    // backlog sans rang : la nouvelle tâche suit les autres par identifiant
+    let t5 = c.tasks.create(new("Cinq"), Some("2026-10-19")).unwrap();
+    assert_eq!(t5.task.rank, None);
+    // une fois tout le backlog ordonné, elle prend un rang après le dernier
+    for id in ["T-001", "T-002", "T-003", "T-004", "T-005"] {
+        c.tasks.move_task(id, None, None).unwrap();
+    }
+    let last = c.tasks.backlog(None).unwrap().tasks.iter().filter_map(|t| t.rank).max().unwrap();
+    let t6 = c.tasks.create(new("Six"), Some("2026-10-19")).unwrap();
+    assert_eq!(t6.task.rank, Some(last + 1000));
+    assert_eq!(ids(&c.tasks.backlog(None).unwrap().tasks).last(), Some(&"T-006"));
+}
+
+#[test]
+fn index_filters_tasks_by_columns() {
+    let c = common::ctx();
+    use tempo_core::index::TaskQuery;
+    let q = |query: TaskQuery| -> Vec<String> { c.tasks.query(&query).unwrap().into_iter().map(|t| t.id).collect() };
+    assert_eq!(q(TaskQuery { status: Some("terminee"), ..Default::default() }), ["T-002"]);
+    assert_eq!(q(TaskQuery { open: true, ..Default::default() }), ["T-001", "T-003", "T-004"]);
+    plan(&c, "T-003", Some("2026-S44"), "2026-10-19");
+    assert_eq!(q(TaskQuery { week: Some("2026-S44"), ..Default::default() }), ["T-003"]);
+    assert_eq!(c.index.task_weeks().unwrap(), ["2026-S44"]);
+    // l'index suit les modifications et se reconstruit à l'identique
+    c.tasks.update("T-003", json!({"status": "terminee"}).as_object().unwrap(), None, Some("2026-10-19")).unwrap();
+    assert_eq!(q(TaskQuery { status: Some("terminee"), ..Default::default() }), ["T-002", "T-003"]);
+    c.index.rebuild().unwrap();
+    assert_eq!(q(TaskQuery { status: Some("terminee"), ..Default::default() }), ["T-002", "T-003"]);
+    assert_eq!(c.index.task_weeks().unwrap(), ["2026-S44"]);
+}
+
+#[test]
+fn archive_done_tasks_and_reopen() {
+    let c = common::ctx();
+    plan(&c, "T-002", Some("2026-S42"), "2026-10-12");
+    assert_eq!(c.tasks.archive_done(Some("2026-10-19")).unwrap(), ["T-002"]);
+    assert!(c.tasks.archive_done(None).unwrap().is_empty(), "idempotent");
+
+    let t2 = c.tasks.get("T-002").unwrap();
+    assert!(t2.task.archived && t2.task.path.starts_with("taches/archives/T-002-"), "{}", t2.task.path);
+    assert_eq!(t2.history.last().unwrap().text, "archivée");
+    assert!(!c.vault.exists("taches/T-002-preparer-copil-sap.md"));
+    // hors du backlog, mais toujours dans les listes, les boards passés et les liens
+    assert!(!ids(&c.tasks.backlog(Some("2026-10-19")).unwrap().tasks).contains(&"T-002"));
+    assert!(ids(&c.tasks.all().unwrap()).contains(&"T-002"));
+    assert_eq!(ids(&c.tasks.board(Some("2026-S42"), Some("2026-10-19")).unwrap().tasks), ["T-002"]);
+    assert_eq!(c.index.resolve_link("T-002").unwrap().as_deref(), Some(t2.task.path.as_str()));
+    assert_eq!(c.tasks.next_id().unwrap(), "T-005");
+
+    // reprise : la tâche revient dans taches/
+    let changes = json!({"status": "en_cours"});
+    let t2 = c.tasks.update("T-002", changes.as_object().unwrap(), None, Some("2026-10-20")).unwrap();
+    assert!(!t2.task.archived && t2.task.path.starts_with("taches/T-002-"));
+    assert_eq!(t2.history.last().unwrap().text, "statut terminee → en_cours — sortie des archives");
+    assert!(ids(&c.tasks.backlog(None).unwrap().tasks).contains(&"T-002"));
+}
+
+#[tokio::test]
+async fn archive_route() {
+    let app = TestApp::new(None, None);
+    let archived = app.post("/api/tasks/archive", None).await;
+    assert_eq!(archived.status, StatusCode::OK, "{}", archived.text);
+    assert_eq!(archived.json()["archived"], json!(["T-002"]));
+    let task = app.get("/api/tasks/T-002").await.json();
+    assert_eq!(task["archived"], true);
 }
 
 #[tokio::test]
