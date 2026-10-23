@@ -7,6 +7,7 @@ use serde_json::Value;
 
 use crate::error::{vault_err, Result};
 use crate::index::Index;
+use crate::llm::strip_fences;
 use crate::util::{parse_date, today};
 use crate::vault::{append_to_section, join_frontmatter, split_frontmatter, Vault};
 
@@ -125,7 +126,9 @@ impl JournalService {
         let template = self.template(if kind == "reunion" { "reunion" } else { "note" })?;
         let text = render(&template, &[("date", &date), ("title", title), ("type", kind)]);
         let text = with_title(&text, title);
-        let text = match body.map(str::trim).filter(|b| !b.is_empty()) {
+        // le LLM enveloppe parfois tout le contenu dans une clôture ```markdown
+        let body = body.map(strip_fences);
+        let text = match body.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
             Some(body) => with_body(&text, body),
             None => text,
         };
@@ -217,5 +220,10 @@ mod tests {
     fn with_body_remplace_le_corps_du_modele() {
         let text = "---\ntype: reunion\ntitle: Point\n---\n\n# Point\n\n## Participants\n";
         assert_eq!(with_body(text, "- a"), "---\ntype: reunion\ntitle: Point\n---\n\n# Point\n\n- a\n");
+    }
+
+    #[test]
+    fn corps_enveloppe_dans_une_cloture_markdown() {
+        assert_eq!(strip_fences("```markdown\n## A\n- a\n```"), "## A\n- a");
     }
 }
