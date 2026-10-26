@@ -680,7 +680,7 @@ impl ImputationService {
     }
 
     /// Export CSV des heures saisies du `start` au `end` inclus : une ligne par jour et par
-    /// compte. Format tableur français : séparateur `;`, virgule décimale, BOM UTF-8.
+    /// compte. Séparateur `,`, point décimal, BOM UTF-8 (accents lus correctement par Excel).
     pub fn export_csv(&self, start: NaiveDate, end: NaiveDate) -> Result<String> {
         if start > end {
             return Err(vault_err(format!("La date de début ({start}) est postérieure à la date de fin ({end})")));
@@ -695,7 +695,7 @@ impl ImputationService {
             .flat_map(|(day, entries)| entries.into_iter().map(move |(alias, h)| (day.clone(), alias, h)))
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
-        let mut text = String::from("\u{feff}Date;Compte;Nom;Catégorie;Heures\r\n");
+        let mut text = String::from("\u{feff}Date,Compte,Nom,Catégorie,Heures\r\n");
         for (day, alias, hours) in rows {
             let account = accounts.get(&alias.to_lowercase());
             let fields = [
@@ -703,9 +703,9 @@ impl ImputationService {
                 account.map(|a| a.alias.clone()).unwrap_or(alias),
                 account.map(|a| a.title.clone()).unwrap_or_default(),
                 account.map(|a| a.categorie.clone()).unwrap_or_default(),
-                fmt(round2(hours)).replace('.', ","),
+                fmt(round2(hours)),
             ];
-            text.push_str(&fields.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(";"));
+            text.push_str(&fields.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
             text.push_str("\r\n");
         }
         Ok(text)
@@ -895,7 +895,7 @@ fn period(start: NaiveDate, end: NaiveDate, open: bool, hours: &Hours, accounts:
 
 /// Champ CSV, entre guillemets s'il contient un séparateur, un guillemet ou un saut de ligne.
 fn csv_field(value: &str) -> String {
-    if value.contains([';', '"', '\n', '\r']) {
+    if value.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
@@ -964,7 +964,7 @@ mod tests {
     #[test]
     fn csv_escape() {
         assert_eq!(csv_field("SAP-MIG"), "SAP-MIG");
-        assert_eq!(csv_field("Run; support"), "\"Run; support\"");
+        assert_eq!(csv_field("Run, support"), "\"Run, support\"");
         assert_eq!(csv_field("dit \"x\""), "\"dit \"\"x\"\"\"");
     }
 }

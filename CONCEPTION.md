@@ -251,8 +251,8 @@ trop). Le compteur de l'espace Imputations compte les jours incomplets de la pé
 distingués : les imputer sur un compte dédié.
 
 Export (`GET /api/imputations/export?start=…&end=…`, bornes incluses) : CSV des heures
-saisies, une ligne par jour et par compte (`Date;Compte;Nom;Catégorie;Heures`), au format
-des tableurs français (séparateur `;`, virgule décimale, BOM UTF-8) ; les comptes supprimés
+saisies, une ligne par jour et par compte (`Date,Compte,Nom,Catégorie,Heures`), séparateur
+`,`, point décimal, BOM UTF-8 ; les comptes supprimés
 depuis gardent leur alias, sans nom ni catégorie.
 
 ## Actions IA de l'éditeur

@@ -210,7 +210,6 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
         <strong>{week ? `${week.week} · ${dayLabel(week.start, 0)} – ${dayLabel(week.end, 6)}` : "…"}</strong>
         <button className="ghost" onClick={() => changeWeek(7)} title="Semaine suivante">▶</button>
         <button className="ghost" onClick={() => changeWeek(0)}>Cette semaine</button>
-        <span className="spacer" />
         <button onClick={() => setExportRange(exportRange ? null : { start: today().slice(0, 8) + "01", end: today() })}
           title="Exporter les heures saisies entre deux dates">Exporter (CSV)</button>
       </header>

@@ -191,7 +191,7 @@ http://localhost:5173.
   dernière saisie (à défaut, dans la semaine en cours). « Proposer une répartition (IA) » s'appuie sur le rapport
   hebdomadaire de la semaine et sur les jours restants de chaque compte. « Exporter (CSV) »
   télécharge les heures saisies entre deux dates choisies au moment de l'export (une ligne par
-  jour et par compte, en heures ; s'ouvre directement dans Excel).
+  jour et par compte, en heures ; colonnes séparées par des virgules, point décimal).
 
 ## Tests
 

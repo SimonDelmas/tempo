@@ -110,10 +110,10 @@ fn export_csv_between_dates() {
     assert_eq!(
         lines,
         vec![
-            "Date;Compte;Nom;Catégorie;Heures",
-            "2026-10-12;SAP-MIG;Migration SAP S/4 — référentiel articles;projet;6,5",
-            "2026-10-12;TRANSVERSE;Activités transverses (réunions d'équipe, support, admin);interne;1,5",
-            "2026-10-16;SAP-MIG;Migration SAP S/4 — référentiel articles;projet;8",
+            "Date,Compte,Nom,Catégorie,Heures",
+            "2026-10-12,SAP-MIG,Migration SAP S/4 — référentiel articles,projet,6.5",
+            "2026-10-12,TRANSVERSE,\"Activités transverses (réunions d'équipe, support, admin)\",interne,1.5",
+            "2026-10-16,SAP-MIG,Migration SAP S/4 — référentiel articles,projet,8",
         ]
     );
     assert!(csv.starts_with('\u{feff}'));
@@ -256,7 +256,7 @@ async fn api() {
 
     let (csv, headers) = app.call_raw(Method::GET, "/api/imputations/export?start=2026-10-01&end=2026-10-31", Vec::new()).await;
     assert_eq!(csv.status, StatusCode::OK);
-    assert!(csv.text.contains("2026-10-12;FORM;Formation;conges;8"), "{}", csv.text);
+    assert!(csv.text.contains("2026-10-12,FORM,Formation,conges,8"), "{}", csv.text);
     assert_eq!(headers["content-type"], "text/csv; charset=utf-8");
     assert!(headers["content-disposition"].to_str().unwrap().contains("imputations_2026-10-01_2026-10-31.csv"));
     let reversed = app.get("/api/imputations/export?start=2026-10-31&end=2026-10-01").await;
