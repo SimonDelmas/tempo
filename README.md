@@ -139,6 +139,10 @@ http://localhost:5173.
     basculent dans la semaine courante (« reportée ») et restent visibles sur le board de la
     semaine quittée.
 
+  La barre latérale liste les projets avec leur nombre de tâches ouvertes (un clic filtre
+  l'espace sur le projet) ; le bouton à droite du titre « Projets » les trie dans l'ordre du
+  backlog ou par nombre de tâches décroissant (choix mémorisé).
+
   Fiche de tâche avec statut / priorité / échéance / projet, historique daté et bouton
   « Rapport d'avancement ». Partout où un projet est demandé (fiche de tâche, création de
   tâche, propositions de l'inbox, du Draft et de l'extraction de tâches, création d'une note

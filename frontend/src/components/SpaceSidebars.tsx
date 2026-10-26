@@ -15,12 +15,20 @@ function Item({ active, onClick, title, children, extra }: {
   );
 }
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => (
+const Section = ({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) => (
   <>
-    <h4 className="sidebar-section">{title}</h4>
+    <h4 className="sidebar-section">{title}{action}</h4>
     {children}
   </>
 );
+
+/** tri des projets de la barre des tâches : ordre du backlog ou nombre de tâches ouvertes */
+type ProjectSort = "rang" | "taches";
+const PROJECT_SORT_KEY = "tempo.tasks.projectSort";
+
+function loadProjectSort(): ProjectSort {
+  try { return localStorage.getItem(PROJECT_SORT_KEY) === "taches" ? "taches" : "rang"; } catch { return "rang"; }
+}
 
 const fmt = (n: number) => String(Math.round(n * 100) / 100).replace(".", ",");
 
@@ -39,6 +47,12 @@ export function TasksSidebar({ revision, current, tab, project, onOpen, onNaviga
 
   const open = tasks.filter((t) => t.status !== "terminee");
   const [notes] = useProjects(revision);
+  const [sort, setSort] = useState<ProjectSort>(loadProjectSort);
+  const toggleSort = () => {
+    const next = sort === "rang" ? "taches" : "rang";
+    setSort(next);
+    try { localStorage.setItem(PROJECT_SORT_KEY, next); } catch { /* préférence non conservée */ }
+  };
   /** [identifiant, titre, tâches ouvertes] : projets du vault puis projets cités sans note */
   const projects = useMemo(() => {
     const counts = new Map<string, number>();
@@ -48,11 +62,13 @@ export function TasksSidebar({ revision, current, tab, project, onOpen, onNaviga
     // ordre des features du backlog : rang croissant, puis titre
     const ordered = [...notes].sort((a, b) =>
       (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.title.localeCompare(b.title, "fr"));
-    return [
+    const list = [
       ...ordered.map((p) => [p.id, p.title, counts.get(p.id) ?? 0] as const),
       ...orphans.map((id) => [id, id, counts.get(id)!] as const),
     ];
-  }, [open, notes]);
+    // tri stable : à nombre égal, l'ordre du backlog est conservé
+    return sort === "taches" ? list.sort((a, b) => b[2] - a[2]) : list;
+  }, [open, notes, sort]);
   const watch = open.filter((t) => t.status === "bloquee" || (t.due && t.due < today()));
   const doing = open.filter((t) => t.status === "en_cours");
 
@@ -71,12 +87,19 @@ export function TasksSidebar({ revision, current, tab, project, onOpen, onNaviga
       <Item active={!current && tab === "board"} onClick={() => onNavigate({ vue: "board", semaine: null })}>
         Board de la semaine
       </Item>
-      <Section title="Projets">
+      <Section title="Projets" action={
+        <button className="section-sort" onClick={toggleSort}
+          title={sort === "rang" ? "Trier par nombre de tâches ouvertes" : "Trier dans l'ordre du backlog"}>
+          {sort === "rang" ? "ordre backlog" : "nb de tâches"} ⇅
+        </button>
+      }>
         {projects.length === 0 && <p className="muted small">Aucun projet</p>}
-        {projects.map(([p, title, n]) => (
-          <Item key={p} active={!current && project === p} onClick={() => onNavigate({ projet: project === p ? null : p })}
-            extra={<span className="count">{n}</span>}>{title}</Item>
-        ))}
+        <div className="nav-compact">
+          {projects.map(([p, title, n]) => (
+            <Item key={p} active={!current && project === p} onClick={() => onNavigate({ projet: project === p ? null : p })}
+              title={title} extra={<span className="count">{n}</span>}>{title}</Item>
+          ))}
+        </div>
       </Section>
       {watch.length > 0 && <Section title="À surveiller">{watch.map(taskItem)}</Section>}
       <Section title="En cours">

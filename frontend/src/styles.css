@@ -123,6 +123,15 @@ main { flex: 1; overflow: auto; min-width: 0; }
   justify-content: space-between; align-items: center;
 }
 .nav:hover:not(:disabled), .nav.active { background: var(--accent-soft); }
+/* liste dense (projets de la barre des tâches) */
+.nav-compact { display: flex; flex-direction: column; }
+.nav-compact .nav { padding: 2px 8px; font-size: 13px; line-height: 1.35; }
+.sidebar-section:has(.section-sort) { display: flex; justify-content: space-between; align-items: baseline; }
+.section-sort {
+  border: none; background: transparent; padding: 0; font-size: 11px; font-weight: 400;
+  color: var(--muted); cursor: pointer;
+}
+.section-sort:hover { color: var(--accent); }
 .pill { background: var(--accent); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; }
 .search { margin: 10px 0 6px; }
 .new-note { display: flex; flex-direction: column; gap: 6px; padding: 6px; }
