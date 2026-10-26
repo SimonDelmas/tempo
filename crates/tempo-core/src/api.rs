@@ -208,6 +208,12 @@ struct SaisieDate {
 }
 
 #[derive(Deserialize)]
+struct DateRange {
+    start: String,
+    end: String,
+}
+
+#[derive(Deserialize)]
 struct ProjectCreate {
     title: String,
 }
@@ -325,6 +331,7 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/imputations", get(get_week).put(save_week))
         .route("/api/imputations/propose", post(propose_week))
         .route("/api/imputations/saisies", get(get_tracking).post(add_saisie).delete(remove_saisie))
+        .route("/api/imputations/export", get(export_imputations))
         // recherche sémantique
         .route("/api/semantic/status", get(semantic_status))
         .route("/api/semantic/sync", post(semantic_sync))
@@ -670,6 +677,19 @@ async fn add_saisie(State(s): State<AppState>, JsonBody(body): JsonBody<SaisieDa
 
 async fn remove_saisie(State(s): State<AppState>, Query(q): Query<SaisieDate>) -> ApiResult {
     blocking(move || s.imputations.remove_saisie(parse_date(&q.date)?, today())).await
+}
+
+/// Heures saisies entre deux dates, en CSV à télécharger.
+async fn export_imputations(State(s): State<AppState>, Query(q): Query<DateRange>) -> Result<Response> {
+    let (start, end) = (parse_date(&q.start)?, parse_date(&q.end)?);
+    let csv = tokio::task::spawn_blocking(move || s.imputations.export_csv(start, end))
+        .await
+        .map_err(|e| Error::Internal(format!("Traitement interrompu : {e}")))??;
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
+        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"imputations_{start}_{end}.csv\""))
+        .body(Body::from(csv))
+        .unwrap())
 }
 
 // --- recherche sémantique ------------------------------------------------------

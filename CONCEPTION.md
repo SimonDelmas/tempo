@@ -250,6 +250,11 @@ trop). Le compteur de l'espace Imputations compte les jours incomplets de la pé
 (sans saisie : ceux de la semaine en cours). Les jours fériés et absences ne sont pas encore
 distingués : les imputer sur un compte dédié.
 
+Export (`GET /api/imputations/export?start=…&end=…`, bornes incluses) : CSV des heures
+saisies, une ligne par jour et par compte (`Date;Compte;Nom;Catégorie;Heures`), au format
+des tableurs français (séparateur `;`, virgule décimale, BOM UTF-8) ; les comptes supprimés
+depuis gardent leur alias, sans nom ni catégorie.
+
 ## Actions IA de l'éditeur
 
 Extraction de tâches d'une note (propositions à cocher, doublons signalés, liens ajoutés en
@@ -511,6 +516,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,
   y compris les propositions de l'inbox, du Draft et de l'extraction de tâches
 - [x] Imputations : type de compte (Projet, Interne, Congés) et regroupement des comptes par type
+- [x] Imputations : export CSV des heures saisies entre deux dates
 - [x] Espace Draft : brouillons en onglets persistants, transformés en note et/ou tâches par l'IA
 - [x] Tâches en backlog (ordre par glisser-déposer, projets comme features) et board par itération hebdomadaire avec report automatique
 - [x] Backlog à plat : ordre unique de toutes les tâches partagé avec le board (réordonnable

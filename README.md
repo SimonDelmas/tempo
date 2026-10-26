@@ -189,7 +189,9 @@ http://localhost:5173.
   le bilan par compte (heures, jours, part), la complétude et les semaines à compléter (un
   clic ouvre la semaine). Le compteur de l'espace indique les jours incomplets depuis la
   dernière saisie (à défaut, dans la semaine en cours). « Proposer une répartition (IA) » s'appuie sur le rapport
-  hebdomadaire de la semaine et sur les jours restants de chaque compte.
+  hebdomadaire de la semaine et sur les jours restants de chaque compte. « Exporter (CSV) »
+  télécharge les heures saisies entre deux dates choisies au moment de l'export (une ligne par
+  jour et par compte, en heures ; s'ouvre directement dans Excel).
 
 ## Tests
 

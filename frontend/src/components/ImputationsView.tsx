@@ -41,6 +41,8 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
   const [busy, setBusy] = useState(false);
   const emptyAccount = { title: "", alias: "", categorie: "projet" as AccountCategory, days: "", description: "" };
   const [newAccount, setNewAccount] = useState(emptyAccount);
+  // export CSV : période choisie au moment de l'export (par défaut : début du mois → aujourd'hui)
+  const [exportRange, setExportRange] = useState<{ start: string; end: string } | null>(null);
 
   const loadRefs = () =>
     Promise.all([api.accounts(), api.projects()])
@@ -117,6 +119,28 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
     }
   };
 
+  const exportCsv = async () => {
+    if (!exportRange) return;
+    const { start, end } = exportRange;
+    try {
+      const res = await fetch(api.imputationsExportUrl(start, end));
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.detail ?? `Erreur ${res.status}`);
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `imputations_${start}_${end}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExportRange(null);
+      notify("Export CSV téléchargé");
+    } catch (e) {
+      notify((e as Error).message, true);
+    }
+  };
+
   const createAccount = async () => {
     try {
       await api.createAccount(newAccount.title, newAccount.alias, newAccount.categorie,
@@ -186,7 +210,22 @@ export default function ImputationsView({ config, revision, date: dateParam, onD
         <strong>{week ? `${week.week} · ${dayLabel(week.start, 0)} – ${dayLabel(week.end, 6)}` : "…"}</strong>
         <button className="ghost" onClick={() => changeWeek(7)} title="Semaine suivante">▶</button>
         <button className="ghost" onClick={() => changeWeek(0)}>Cette semaine</button>
+        <span className="spacer" />
+        <button onClick={() => setExportRange(exportRange ? null : { start: today().slice(0, 8) + "01", end: today() })}
+          title="Exporter les heures saisies entre deux dates">Exporter (CSV)</button>
       </header>
+
+      {exportRange && (
+        <div className="row imputation-export">
+          <label>Du <input type="date" value={exportRange.start} max={exportRange.end}
+            onChange={(e) => setExportRange({ ...exportRange, start: e.target.value })} /></label>
+          <label>au <input type="date" value={exportRange.end} min={exportRange.start}
+            onChange={(e) => setExportRange({ ...exportRange, end: e.target.value })} /></label>
+          <button className="primary" disabled={!exportRange.start || !exportRange.end} onClick={exportCsv}>Télécharger</button>
+          <button className="ghost" onClick={() => setExportRange(null)}>Annuler</button>
+          <span className="muted small">Une ligne par jour et par compte, en heures.</span>
+        </div>
+      )}
 
       <ImputationPeriods revision={revision} onWeek={(d) => onDate(d)} onOpen={onOpen} notify={notify} />
 

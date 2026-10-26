@@ -96,6 +96,31 @@ fn save_week_and_consumption() {
     assert!(matches!(service.save_week(monday(), &hours(json!({"2026-10-12": {"INCONNU": 8}})), ""), Err(Error::NotFound(_))));
 }
 
+#[test]
+fn export_csv_between_dates() {
+    let c = common::ctx();
+    let service = make_service(&c, FakeLlm::new(Vec::<String>::new()));
+    service
+        .save_week(monday(), &hours(json!({"2026-10-12": {"TRANSVERSE": 1.5, "SAP-MIG": 6.5}, "2026-10-16": {"SAP-MIG": 8}})), "")
+        .unwrap();
+    service.save_week(day(19), &hours(json!({"2026-10-19": {"SAP-MIG": 8}})), "").unwrap();
+
+    let csv = service.export_csv(day(12), day(16)).unwrap();
+    let lines: Vec<&str> = csv.trim_start_matches('\u{feff}').lines().collect();
+    assert_eq!(
+        lines,
+        vec![
+            "Date;Compte;Nom;Catégorie;Heures",
+            "2026-10-12;SAP-MIG;Migration SAP S/4 — référentiel articles;projet;6,5",
+            "2026-10-12;TRANSVERSE;Activités transverses (réunions d'équipe, support, admin);interne;1,5",
+            "2026-10-16;SAP-MIG;Migration SAP S/4 — référentiel articles;projet;8",
+        ]
+    );
+    assert!(csv.starts_with('\u{feff}'));
+    assert_eq!(service.export_csv(day(1), day(9)).unwrap().lines().count(), 1);
+    assert!(matches!(service.export_csv(day(16), day(12)), Err(Error::Vault(_))));
+}
+
 fn day(d: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(2026, 10, d).unwrap()
 }
@@ -228,4 +253,12 @@ async fn api() {
     assert_eq!(removed["saisies"], json!([]));
     assert_eq!(app.post("/api/imputations/propose?date=2026-10-12", None).await.status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(app.get("/api/imputations?date=demain").await.status, StatusCode::BAD_REQUEST);
+
+    let (csv, headers) = app.call_raw(Method::GET, "/api/imputations/export?start=2026-10-01&end=2026-10-31", Vec::new()).await;
+    assert_eq!(csv.status, StatusCode::OK);
+    assert!(csv.text.contains("2026-10-12;FORM;Formation;conges;8"), "{}", csv.text);
+    assert_eq!(headers["content-type"], "text/csv; charset=utf-8");
+    assert!(headers["content-disposition"].to_str().unwrap().contains("imputations_2026-10-01_2026-10-31.csv"));
+    let reversed = app.get("/api/imputations/export?start=2026-10-31&end=2026-10-01").await;
+    assert_eq!(reversed.status, StatusCode::BAD_REQUEST);
 }

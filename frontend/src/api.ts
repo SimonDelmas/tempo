@@ -234,6 +234,8 @@ export const api = {
     request<ImputationWeek>("PUT", "/api/imputations", { date, hours, comment }),
   proposeImputations: (date: string) =>
     request<{ hours: Hours; comment: string }>("POST", "/api/imputations/propose" + q({ date })),
+  /** heures saisies entre deux dates (incluses), en CSV à télécharger */
+  imputationsExportUrl: (start: string, end: string) => "/api/imputations/export" + q({ start, end }),
   imputationTracking: () => request<ImputationTracking>("GET", "/api/imputations/saisies"),
   addSaisie: (date: string) => request<ImputationTracking>("POST", "/api/imputations/saisies", { date }),
   removeSaisie: (date: string) => request<ImputationTracking>("DELETE", "/api/imputations/saisies" + q({ date })),
