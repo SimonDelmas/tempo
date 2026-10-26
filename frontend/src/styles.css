@@ -240,6 +240,10 @@ main { flex: 1; overflow: auto; min-width: 0; }
 .backlog td.iteration { white-space: nowrap; }
 .backlog td.iteration select { padding: 1px 4px; font-size: 13px; }
 .backlog td.iteration button { padding: 0 4px; border: none; }
+.backlog td.status select, .backlog td.priority select, .backlog td.due input { padding: 1px 4px; font-size: 13px; }
+.backlog td.status select.status-pill { border: 1px solid transparent; font-size: 12px; }
+.backlog td.status select.status-pill:hover, .backlog td.status select.status-pill:focus { border-color: var(--border); }
+.backlog select.overdue, .backlog input.overdue { color: var(--danger); }
 .status-pill { font-size: 12px; border-radius: 10px; padding: 0 8px; background: var(--sidebar); white-space: nowrap; }
 .status-pill.status-en_cours { background: var(--accent-soft); color: var(--accent); }
 .status-pill.status-bloquee { color: var(--danger); }

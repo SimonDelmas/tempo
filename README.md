@@ -121,7 +121,8 @@ http://localhost:5173.
   - **Backlog** : toutes les tâches dans un seul tableau, ordonnées entre elles par
     glisser-déposer. La colonne Feature montre le projet de la tâche (les projets tiennent
     lieu de features) et permet d'en changer ; la colonne Itération planifie une tâche sur une
-    semaine (courante ou suivantes). Une ligne de filtres sous les en-têtes filtre chaque
+    semaine (courante ou suivantes) ; statut, priorité et échéance se modifient aussi
+    directement dans le tableau (échéance vidée = retirée). Une ligne de filtres sous les en-têtes filtre chaque
     colonne (feature, statut, priorité, itération, échéance) et recherche dans les
     identifiants, titres, features et itérations ; « Effacer les filtres » les retire. Le
     filtre Feature est le même que celui de l'en-tête de l'espace (option « Sans projet »).

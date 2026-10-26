@@ -107,6 +107,17 @@ export default function BacklogView({ config, revision, project, onProject, proj
   const setProject = (task: Task, id: string) => update(task, { project: id || null },
     id ? `${task.id} rattachée à ${projectTitle(projects, id)}` : `${task.id} sans projet`);
 
+  const setStatus = (task: Task, status: string) => update(task, { status },
+    `${task.id} : ${STATUS_LABELS[status] ?? status}`);
+
+  const setPriority = (task: Task, priority: string) => update(task, { priority },
+    `${task.id} : priorité ${priority}`);
+
+  const setDue = (task: Task, due: string) => {
+    if (due === (task.due ?? "")) return;
+    update(task, { due: due || null }, due ? `${task.id} : échéance au ${due}` : `${task.id} sans échéance`);
+  };
+
   const endDrag = () => {
     setDragged(null);
     setTarget(null);
@@ -236,8 +247,18 @@ export default function BacklogView({ config, revision, project, onProject, proj
                   <ProjectSelect projects={projects} value={t.project ?? ""} emptyLabel="—"
                     onChange={(id) => setProject(t, id)} onCreated={addProject} notify={notify} />
                 </td>
-                <td><span className={`status-pill status-${t.status}`}>{STATUS_LABELS[t.status] ?? t.status}</span></td>
-                <td className={t.priority === "haute" ? "overdue small" : "small"}>{t.priority}</td>
+                <td className="status">
+                  <select className={`status-pill status-${t.status}`} value={t.status}
+                    onChange={(e) => setStatus(t, e.target.value)}>
+                    {config.statuses.map((s) => <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>)}
+                  </select>
+                </td>
+                <td className="priority">
+                  <select className={t.priority === "haute" ? "overdue" : ""} value={t.priority}
+                    onChange={(e) => setPriority(t, e.target.value)}>
+                    {config.priorities.map((p) => <option key={p}>{p}</option>)}
+                  </select>
+                </td>
                 <td className="iteration">
                   <select value={t.iteration ?? ""} onChange={(e) => plan(t, e.target.value)}>
                     <option value="">—</option>
@@ -250,7 +271,12 @@ export default function BacklogView({ config, revision, project, onProject, proj
                       onClick={() => onPlan(t.iteration!)}>↗</button>
                   )}
                 </td>
-                <td className={`small ${overdue ? "overdue" : "muted"}`}>{t.due ?? ""}</td>
+                <td className="due">
+                  {/* clé sur l'échéance : le champ, non contrôlé, repart de la valeur enregistrée après chaque rechargement */}
+                  <input type="date" key={t.due ?? ""} defaultValue={t.due ?? ""} className={overdue ? "overdue" : ""}
+                    onBlur={(e) => setDue(t, e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} />
+                </td>
               </tr>
             );
           })}
