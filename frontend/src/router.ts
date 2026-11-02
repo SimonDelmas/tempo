@@ -15,6 +15,31 @@ export const SPACES: { id: Space; label: string }[] = [
 
 export const DEFAULT_SPACE: Space = "taches";
 
+/** Entrées du menu de gauche : Journal ouvre une note, Bibliothèque regroupe plusieurs espaces en onglets. */
+export type MenuId = "journal" | "taches" | "bibliotheque" | "imputations" | "brouillons";
+
+export const MENU: { id: MenuId; label: string }[] = [
+  { id: "journal", label: "Journal" },
+  { id: "taches", label: "Tâches" },
+  { id: "bibliotheque", label: "Bibliothèque" },
+  { id: "imputations", label: "Imputations" },
+  { id: "brouillons", label: "Draft" },
+];
+
+/** onglets de la vue Bibliothèque */
+export const LIBRARY_TABS: { id: Space; label: string }[] = [
+  { id: "notes", label: "Notes" },
+  { id: "bibliotheque", label: "Bibliothèque" },
+  { id: "rapports", label: "Rapports" },
+  { id: "inbox", label: "Inbox" },
+];
+
+/** entrée du menu correspondant à une page ; les notes du journal relèvent de l'entrée Journal */
+export function menuOf(space: Space, path: string | null): MenuId {
+  if (space === "notes" && path?.startsWith("journal/")) return "journal";
+  return LIBRARY_TABS.some((t) => t.id === space) ? "bibliotheque" : space as MenuId;
+}
+
 /** #/<espace>/<chemin de note>?<paramètres> ; sans chemin : page d'accueil de l'espace */
 export type Route = { space: Space; path: string | null; params: Record<string, string> };
 

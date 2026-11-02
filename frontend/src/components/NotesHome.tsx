@@ -29,7 +29,7 @@ export default function NotesHome({ files, onOpen }: Props) {
             </li>
           ))}
         </ul>
-        <p className="muted small">Ctrl+P : ouvrir une note · Alt+1…7 : changer d'espace · Alt+J : journal du jour · Alt+N : nouveau brouillon</p>
+        <p className="muted small">Ctrl+P : ouvrir une note · Alt+1…5 : changer d'entrée du menu · Alt+J : journal du jour · Alt+N : nouveau brouillon</p>
       </section>
     </div>
   );

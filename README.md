@@ -59,9 +59,10 @@ http://localhost:5173.
 
 ## Utilisation
 
-- **Navigation** : la barre de gauche donne accès aux espaces Notes, Tâches, Rapports,
-  Imputations, Inbox, Draft et Bibliothèque (Alt+1…7), chacun avec sa propre barre latérale. Chaque page a son
-  adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
+- **Navigation** : le menu de gauche propose Journal (ouvre le journal du jour), Tâches (le
+  survol offre un accès direct au Backlog et au Board), Bibliothèque (onglets Notes,
+  Bibliothèque, Rapports et Inbox), Imputations et Draft (Alt+1…5), chacun avec sa propre
+  barre latérale. Chaque page a son adresse (`#/taches?projet=sap`, `#/notes/reunions/…`, `#/imputations?date=…`) : retour
   arrière du navigateur et liens directs fonctionnent. Une note s'ouvre dans l'espace de son
   dossier (`taches/` → Tâches, `rapports/` → Rapports, `comptes/` et `imputations/` →
   Imputations) ; chaque espace retrouve la dernière page consultée. Les flèches en haut de

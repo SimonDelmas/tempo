@@ -15,16 +15,20 @@ import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
 import { ImputationsSidebar, ReportsSidebar, TasksSidebar } from "./components/SpaceSidebars";
 import TasksView, { TasksTab } from "./components/TasksView";
-import { goBack, goForward, href, matchShortcut, navigate, noteHref, Space, SPACES, useRoute } from "./router";
+import { goBack, goForward, href, LIBRARY_TABS, matchShortcut, MENU, MenuId, menuOf, navigate, noteHref, Space, useRoute } from "./router";
 
 /** `action` : la notification est cliquable (ouvre par exemple la conversation concernée) */
 type Toast = { id: number; message: string; error: boolean; action?: () => void };
 
 const LAST_ROUTES_KEY = "tempo.lastRoutes";
 
-function loadLastRoutes(): Partial<Record<Space, string>> {
+/** dernière page de chaque espace ; `vue` : dernière page de la vue Bibliothèque, tous onglets confondus */
+function loadLastRoutes(): Partial<Record<Space | "vue", string>> {
   try {
-    return JSON.parse(localStorage.getItem(LAST_ROUTES_KEY) ?? "{}");
+    const routes = JSON.parse(localStorage.getItem(LAST_ROUTES_KEY) ?? "{}");
+    // une note du journal enregistrée avant l'entrée Journal ne doit pas rouvrir l'onglet Notes
+    if (routes.notes?.startsWith("#/notes/journal/")) delete routes.notes;
+    return routes;
   } catch {
     return {};
   }
@@ -44,6 +48,7 @@ export default function App() {
   const editorActions = useRef<EditorActions>({});
   const route = useRoute();
   const { space, path, params } = route;
+  const menu = menuOf(space, path);
 
   const notify = useCallback((message: string, error = false, action?: () => void) => {
     const id = Date.now() + Math.random();
@@ -90,13 +95,15 @@ export default function App() {
 
   // chaque espace retrouve la dernière page consultée
   useEffect(() => {
+    if (menu === "journal") return;
     lastRoutes.current[space] = window.location.hash;
+    if (menu === "bibliotheque") lastRoutes.current.vue = window.location.hash;
     try {
       localStorage.setItem(LAST_ROUTES_KEY, JSON.stringify(lastRoutes.current));
     } catch {
       /* stockage indisponible */
     }
-  }, [space, path, params]);
+  }, [menu, space, path, params]);
 
   const selectSpace = useCallback((target: Space) => {
     // un second clic sur l'espace courant ramène à sa page d'accueil
@@ -108,13 +115,24 @@ export default function App() {
     window.setTimeout(poll, 300);
   }, [poll, space]);
 
+  const openJournal = useCallback(() => {
+    api.journalToday().then((r) => open(r.path)).catch((err) => notify(err.message, true));
+  }, [open, notify]);
+
+  const selectMenu = useCallback((entry: MenuId) => {
+    if (entry === "journal") openJournal();
+    // comme un espace : un second clic ramène à l'accueil de l'onglet affiché
+    else if (entry === "bibliotheque") navigate(menu === entry ? href(space) : lastRoutes.current.vue || href("notes"));
+    else selectSpace(entry);
+  }, [menu, space, openJournal, selectSpace]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // Alt+1…6 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
+      // Alt+1…5 : changer d'entrée du menu (Ctrl+chiffre est réservé aux onglets du navigateur)
       const index = Number(e.key) - 1;
-      if (e.altKey && !e.ctrlKey && index >= 0 && index < SPACES.length) {
+      if (e.altKey && !e.ctrlKey && index >= 0 && index < MENU.length) {
         e.preventDefault();
-        selectSpace(SPACES[index].id);
+        selectMenu(MENU[index].id);
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
@@ -123,7 +141,7 @@ export default function App() {
       // Alt+J : journal du jour (créé s'il n'existe pas)
       if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        api.journalToday().then((r) => open(r.path)).catch((err) => notify(err.message, true));
+        openJournal();
       }
       // Alt+N : nouveau brouillon dans l'espace Draft
       if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
@@ -145,7 +163,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectSpace, chatPanel.open, setChatPanel, open, notify]);
+  }, [selectMenu, chatPanel.open, setChatPanel, openJournal, notify]);
 
   // vue précédente / suivante : raccourcis configurables (capturés avant l'éditeur, dont
   // Alt+flèche déplace sinon le curseur) et boutons latéraux de la souris
@@ -218,19 +236,39 @@ export default function App() {
 
   return (
     <div className="app">
-      <SpaceBar current={space} onSelect={selectSpace} shortcuts={config.shortcuts}
-        badges={{ inbox: inboxCount, imputations: imputationMissing, bibliotheque: libraryPending }} />
-      {sidebar}
+      <SpaceBar current={menu} onSelect={selectMenu} shortcuts={config.shortcuts}
+        tasksTab={space === "taches" && !path ? tasksTab : null}
+        onTasksTab={(vue) => space === "taches" ? tasksNav({ vue }) : navigate(href("taches", null, { vue }))}
+        badges={{ imputations: imputationMissing, bibliotheque: inboxCount + libraryPending }} />
 
-      <main>
-        {path
-          ? <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify}
-            actions={editorActions} />
-          : home}
-      </main>
+      <div className="workspace">
+        {menu === "bibliotheque" && (
+          <div className="workspace-tabs" role="tablist">
+            {LIBRARY_TABS.map((t) => {
+              const badge = t.id === "inbox" ? inboxCount : t.id === "bibliotheque" ? libraryPending : 0;
+              return (
+                <button key={t.id} role="tab" aria-selected={space === t.id} className={space === t.id ? "active" : ""}
+                  onClick={() => selectSpace(t.id)}>
+                  {t.label}{!!badge && <span className="count">{badge}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <div className="workspace-body">
+          {sidebar}
 
-      {path && <RightPanel path={path} revision={revision} semantic={config.semantic_enabled} onOpen={open}
-        onLink={(name) => editorActions.current.appendLink?.(name)} />}
+          <main>
+            {path
+              ? <EditorPane path={path} files={files} config={config} revision={revision} onOpen={open} notify={notify}
+                actions={editorActions} />
+              : home}
+          </main>
+
+          {path && <RightPanel path={path} revision={revision} semantic={config.semantic_enabled} onOpen={open}
+            onLink={(name) => editorActions.current.appendLink?.(name)} />}
+        </div>
+      </div>
 
       <ChatPanel config={config} panel={chatPanel} onPanel={setChatPanel} chats={chat.chats} live={chat.live}
         onSend={(question) => chat.send(chatPanel.current, question)}

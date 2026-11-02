@@ -63,7 +63,10 @@ processus local ni une page web ne peuvent appeler l'API. Le frontend garde ses 
 relatifs `/api/*` et la diffusion SSE ; les liens externes s'ouvrent dans le navigateur
 du système. Une seule instance tourne à la fois.
 
-Frontend : chaque vue a son adresse (`#/<espace>/<note>?…`, `router.ts`). Le routeur tient
+Frontend : chaque vue a son adresse (`#/<espace>/<note>?…`, `router.ts`). Les espaces restent
+les unités d'adressage ; le menu de gauche (`MENU`) les présente autrement : `menuOf` rattache
+Notes, Bibliothèque, Rapports et Inbox à l'entrée Bibliothèque (`LIBRARY_TABS`, en onglets) et
+les notes de `journal/` à l'entrée Journal. Le routeur tient
 son propre historique des vues (pile + position) pour les boutons précédent / suivant, qui
 savent ainsi s'ils sont actifs ; ils respectent la garde de sortie des saisies non
 enregistrées. Les raccourcis viennent de `/api/config` (`TEMPO_SHORTCUT_BACK`,
@@ -512,7 +515,8 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
-- [x] Raccourcis globaux : Alt+1…7 (espaces), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (ouverture rapide), Alt+C (chat)
+- [x] Menu de gauche : Journal, Tâches (sous-menu Backlog / Board au survol), Bibliothèque (onglets Notes, Bibliothèque, Rapports, Inbox), Imputations, Draft
+- [x] Raccourcis globaux : Alt+1…5 (entrées du menu), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (ouverture rapide), Alt+C (chat)
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,
   y compris les propositions de l'inbox, du Draft et de l'extraction de tâches

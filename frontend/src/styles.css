@@ -66,15 +66,40 @@ h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: v
 /* --- disposition ------------------------------------------------------- */
 .app { display: flex; height: 100vh; }
 .app > .space-bar { width: 68px; flex-shrink: 0; }
-.app > .sidebar { width: 250px; flex-shrink: 0; }
-.app > .right-panel { width: 260px; flex-shrink: 0; }
+.workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.workspace-body { flex: 1; display: flex; min-height: 0; }
+.workspace-body > .sidebar { width: 250px; flex-shrink: 0; }
+.workspace-body > .right-panel { width: 260px; flex-shrink: 0; }
 main { flex: 1; overflow: auto; min-width: 0; }
+
+/* onglets de la vue Bibliothèque */
+.workspace-tabs {
+  display: flex; align-items: flex-end; gap: 2px; padding: 8px 12px 0; overflow-x: auto; flex-shrink: 0;
+  background: var(--sidebar); border-bottom: 1px solid var(--border); scrollbar-width: none;
+}
+.workspace-tabs button {
+  display: flex; align-items: center; gap: 6px; padding: 6px 14px; margin-bottom: -1px; white-space: nowrap;
+  border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; background: transparent; color: var(--muted);
+}
+.workspace-tabs button:hover { color: var(--text); background: var(--accent-soft); }
+.workspace-tabs button.active { background: var(--bg); border-color: var(--border); color: var(--text); font-weight: 600; }
 
 /* --- barre d'espaces --------------------------------------------------- */
 .space-bar {
   display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 10px 6px;
-  background: var(--sidebar); border-right: 1px solid var(--border); overflow-y: auto;
+  background: var(--sidebar); border-right: 1px solid var(--border);
 }
+.space-entry { position: relative; display: flex; flex-direction: column; }
+/* sous-menu au survol d'une entrée (Tâches) ; visible aussi au clavier */
+.space-menu {
+  display: none; position: absolute; top: 0; left: 100%; z-index: 50; min-width: 120px; padding: 4px;
+  flex-direction: column; gap: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.space-entry:hover .space-menu, .space-entry:has(:focus-visible) .space-menu { display: flex; }
+.space-menu button { border: none; background: transparent; text-align: left; padding: 6px 10px; border-radius: 6px; }
+.space-menu button:hover { background: var(--accent-soft); }
+.space-menu button.active { color: var(--accent); background: var(--accent-soft); }
 .brand-mark {
   align-self: center; width: 32px; height: 32px; border-radius: 8px; background: var(--accent); color: #fff;
   display: grid; place-items: center; font-weight: 700; margin-bottom: 10px;
@@ -344,6 +369,8 @@ input.full { width: 100%; }
 
 @media (max-width: 900px) {
   .app { display: flex; flex-direction: column; }
+  .workspace-body { flex-direction: column; }
+  .space-menu { top: 100%; left: 0; }
   main { flex: 1; }
   .space-bar { flex-direction: row; justify-content: space-around; padding: 4px; border-right: none; border-bottom: 1px solid var(--border); }
   .brand-mark { display: none; }
