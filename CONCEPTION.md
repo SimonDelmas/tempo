@@ -512,6 +512,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Client lourd : backend réécrit en Rust (axum, rusqlite, sqlite-vec), application de bureau Tauri 2, installeurs NSIS / MSI
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
+- [x] Raccourcis globaux : Alt+1…7 (espaces), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (ouverture rapide), Alt+C (chat)
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,
   y compris les propositions de l'inbox, du Draft et de l'extraction de tâches

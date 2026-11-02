@@ -14,7 +14,7 @@ export default function NotesHome({ files, onOpen }: Props) {
     <div className="page">
       <header className="page-header">
         <h2>Notes</h2>
-        <button className="primary" onClick={() => api.journalToday().then((r) => onOpen(r.path))}>
+        <button className="primary" title="Alt+J" onClick={() => api.journalToday().then((r) => onOpen(r.path))}>
           Journal du jour
         </button>
       </header>
@@ -29,7 +29,7 @@ export default function NotesHome({ files, onOpen }: Props) {
             </li>
           ))}
         </ul>
-        <p className="muted small">Ctrl+P : ouvrir une note · Alt+1…5 : changer d'espace</p>
+        <p className="muted small">Ctrl+P : ouvrir une note · Alt+1…7 : changer d'espace · Alt+J : journal du jour · Alt+N : nouveau brouillon</p>
       </section>
     </div>
   );

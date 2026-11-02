@@ -67,7 +67,9 @@ http://localhost:5173.
   Imputations) ; chaque espace retrouve la dernière page consultée. Les flèches en haut de
   la barre (Alt+← / Alt+→, ou les boutons latéraux de la souris) reviennent à la vue
   précédente et passent à la suivante ; raccourcis modifiables avec `TEMPO_SHORTCUT_BACK` et
-  `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`).
+  `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`). Alt+J ouvre le
+  journal du jour (créé au besoin), Alt+N ouvre l'espace Draft sur un nouveau brouillon, curseur
+  dans l'éditeur ; Ctrl+P ouvre une note par son nom.
 - **Chat** : panneau à droite de l'application, accessible depuis tous les espaces. Il se
   réduit en une barre étroite (bouton », Alt+C ; Alt+C le déplie et place le curseur dans la
   saisie) et se redimensionne en glissant son bord gauche (double-clic : largeur par défaut) ;

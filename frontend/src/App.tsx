@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Config, NoteSummary } from "./api";
+import { api, Config, drafts, NoteSummary } from "./api";
 import { ChatEntry, useChats } from "./chats";
 import ChatPanel, { useChatPanel } from "./components/ChatPanel";
 import DraftsView from "./components/DraftsView";
@@ -103,6 +103,11 @@ export default function App() {
     navigate(target === space ? href(target) : lastRoutes.current[target] || href(target));
   }, [space]);
 
+  const open = useCallback((p: string | null) => {
+    navigate(p ? noteHref(p) : href(space));
+    window.setTimeout(poll, 300);
+  }, [poll, space]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Alt+1…6 : changer d'espace (Ctrl+chiffre est réservé aux onglets du navigateur)
@@ -114,6 +119,17 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
         setQuickOpen(true);
+      }
+      // Alt+J : journal du jour (créé s'il n'existe pas)
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        api.journalToday().then((r) => open(r.path)).catch((err) => notify(err.message, true));
+      }
+      // Alt+N : nouveau brouillon dans l'espace Draft
+      if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        drafts.create().then((d) => navigate(href("brouillons", null, { d: d.id })))
+          .catch((err) => notify(err.message, true));
       }
       // Alt+C : déplie le chat et passe à la saisie ; depuis la saisie, le réduit
       if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "c") {
@@ -129,7 +145,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectSpace, chatPanel.open, setChatPanel]);
+  }, [selectSpace, chatPanel.open, setChatPanel, open, notify]);
 
   // vue précédente / suivante : raccourcis configurables (capturés avant l'éditeur, dont
   // Alt+flèche déplace sinon le curseur) et boutons latéraux de la souris
@@ -155,11 +171,6 @@ export default function App() {
       window.removeEventListener("mouseup", onMouse);
     };
   }, [shortcuts]);
-
-  const open = useCallback((p: string | null) => {
-    navigate(p ? noteHref(p) : href(space));
-    window.setTimeout(poll, 300);
-  }, [poll, space]);
 
   const replaceChatEntry = useCallback((id: string, index: number, entry: ChatEntry) => {
     chat.replace(id, index, entry);

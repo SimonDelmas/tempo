@@ -138,7 +138,7 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
   return (
     <aside className="sidebar">
       <div className="sidebar-title">Notes</div>
-      <button className="nav" onClick={() => api.journalToday().then((r) => onOpen(r.path))}>
+      <button className="nav" title="Alt+J" onClick={() => api.journalToday().then((r) => onOpen(r.path))}>
         Journal du jour
       </button>
 

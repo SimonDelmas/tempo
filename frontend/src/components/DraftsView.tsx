@@ -68,8 +68,22 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
     };
   }, [flush]);
 
+  // brouillon créé hors de la vue (raccourci Alt+N) : on recharge la liste pour l'afficher
+  const missing = Boolean(list && current && !list.some((d) => d.id === current));
+  useEffect(() => {
+    if (missing) draftsApi.list().then(setList).catch((e) => notify(e.message, true));
+  }, [missing, notify]);
+
   const active = list?.find((d) => d.id === current) ?? list?.[0] ?? null;
   const proposal = active ? proposals[active.id] ?? null : null;
+
+  // un brouillon vide (nouveau) reçoit le curseur pour écrire tout de suite
+  const activeEmpty = Boolean(active && !active.content && !active.title);
+  useEffect(() => {
+    if (!activeEmpty) return;
+    const handle = window.setTimeout(() => document.querySelector<HTMLElement>(".draft-editor .cm-content")?.focus(), 0);
+    return () => window.clearTimeout(handle);
+  }, [active?.id, activeEmpty]);
 
   const edit = (id: string, changes: Pending) => {
     setList((prev) => prev?.map((d) => (d.id === id ? { ...d, ...changes } : d)) ?? prev);
@@ -172,13 +186,13 @@ export default function DraftsView({ config, files, current, onSelect, onOpen, n
               onClick={(e) => { e.stopPropagation(); remove(d); }}>×</button>
           </div>
         ))}
-        <button className="draft-add" title="Nouveau brouillon" aria-label="Nouveau brouillon" onClick={add}>+</button>
+        <button className="draft-add" title="Nouveau brouillon (Alt+N)" aria-label="Nouveau brouillon" onClick={add}>+</button>
       </div>
 
       {!active && (
         <div className="empty">
           <p>Aucun brouillon. Écrivez au fil de l'eau, puis laissez l'IA en faire une note ou des tâches.</p>
-          <button className="primary" onClick={add}>Nouveau brouillon</button>
+          <button className="primary" onClick={add} title="Alt+N">Nouveau brouillon</button>
         </div>
       )}
 
