@@ -47,7 +47,7 @@ function useUpload(config: Config, notify: Notify, onDone: () => void) {
 }
 
 /** Extrait de recherche : les termes trouvés (entre « ») surlignés. */
-function Snippet({ text }: { text: string }) {
+export function Snippet({ text }: { text: string }) {
   const parts = text.split(/«([^»]*)»/);
   return <>{parts.map((p, i) => (i % 2 ? <mark key={i}>{p}</mark> : p))}</>;
 }

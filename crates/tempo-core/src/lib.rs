@@ -24,6 +24,7 @@ pub mod llm;
 pub mod notes;
 pub mod prompts;
 pub mod reports;
+pub mod search;
 pub mod semantic;
 pub mod services;
 pub mod tasks;

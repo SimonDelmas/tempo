@@ -309,6 +309,13 @@ input.full { width: 100%; }
 .quick-open ul { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
 .quick-open li { padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; gap: 12px; cursor: pointer; }
 .quick-open li.selected { background: var(--accent-soft); }
+.global-search ul { max-height: 60vh; }
+.global-search li.group-title { display: block; cursor: default; padding: 8px 10px 2px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.global-search li.hit { display: block; }
+.global-search .hit-head { display: flex; justify-content: space-between; gap: 12px; }
+.global-search .hit-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.global-search .hit-head .muted { flex-shrink: 0; }
+.global-search .snippet { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 20; }
 .toast { background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 6px; max-width: 420px; }
 .toast.error { background: var(--danger); color: #fff; }

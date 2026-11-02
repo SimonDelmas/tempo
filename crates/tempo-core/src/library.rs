@@ -919,6 +919,15 @@ impl LibraryService {
             hits.sort_by_key(|h| (fold(&h.document.title), h.document.id.clone()));
             return Ok(hits);
         }
+        let mut seen = HashSet::new();
+        let mut hits = self.word_hits(&documents, &words, &mut seen)?;
+        // documents proches par le sens que les mots n'ont pas trouvés, à la suite
+        hits.extend(self.meaning_hits(&documents, filter.q.as_deref().unwrap_or_default(), &mut seen)?);
+        Ok(hits)
+    }
+
+    /// Documents contenant tous les mots, du plus au moins pertinent, avec leur meilleur passage.
+    fn word_hits(&self, documents: &HashMap<String, Document>, words: &[String], seen: &mut HashSet<String>) -> Result<Vec<LibraryHit>> {
         let fts = words.iter().map(|w| format!("\"{w}\"*")).collect::<Vec<_>>().join(" ");
         let conn = self.db.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -928,7 +937,6 @@ impl LibraryService {
         let rows = stmt.query_map([&fts], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<u32>>(2)?, r.get::<_, String>(3)?))
         })?;
-        let mut seen = HashSet::new();
         let mut hits = Vec::new();
         for row in rows.flatten() {
             let (doc, section, page, snippet) = row;
@@ -940,10 +948,13 @@ impl LibraryService {
                 hits.push(LibraryHit { document: document.clone(), snippet, section, page, semantic: false });
             }
         }
-        drop(stmt);
-        drop(conn);
-        // documents proches par le sens que les mots n'ont pas trouvés, à la suite
-        for row in self.semantic_rows(filter.q.as_deref().unwrap_or_default(), 30)? {
+        Ok(hits)
+    }
+
+    /// Documents proches par le sens, hors ceux de `seen` ; charge le modèle d'embeddings au besoin.
+    fn meaning_hits(&self, documents: &HashMap<String, Document>, query: &str, seen: &mut HashSet<String>) -> Result<Vec<LibraryHit>> {
+        let mut hits = Vec::new();
+        for row in self.semantic_rows(query, 30)? {
             if !seen.insert(row.doc.clone()) {
                 continue;
             }
@@ -953,6 +964,33 @@ impl LibraryService {
             }
         }
         Ok(hits)
+    }
+
+    fn documents_by_id(&self) -> Result<HashMap<String, Document>> {
+        Ok(self.documents()?.into_iter().map(|d| (d.id.clone(), d)).collect())
+    }
+
+    /// Recherche par mots seuls (recherche globale) : ne charge pas le modèle d'embeddings.
+    pub fn search_words(&self, query: &str, limit: usize) -> Result<Vec<LibraryHit>> {
+        let words: Vec<String> = WORD_RE.find_iter(query).map(|m| m.as_str().to_string()).collect();
+        if words.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut hits = self.word_hits(&self.documents_by_id()?, &words, &mut HashSet::new())?;
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
+    /// Recherche par le sens seul (recherche globale).
+    pub fn search_meaning(&self, query: &str, limit: usize) -> Result<Vec<LibraryHit>> {
+        let mut hits = self.meaning_hits(&self.documents_by_id()?, query, &mut HashSet::new())?;
+        hits.truncate(limit);
+        Ok(hits)
+    }
+
+    /// Seuil de similarité du modèle d'embeddings, s'il y en a un.
+    pub fn min_similarity(&self) -> Option<f32> {
+        self.vectors.as_ref().map(|v| v.min_similarity())
     }
 
     pub fn get(&self, id: &str) -> Result<Document> {

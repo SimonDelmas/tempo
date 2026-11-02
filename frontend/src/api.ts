@@ -156,6 +156,18 @@ export type SemanticStatus = {
 
 export type SearchResult ={ path: string; title: string; type: string; snippet: string };
 
+/** résultat de la recherche globale ; target : chemin de la note, identifiant du document ou du brouillon */
+export type GlobalHit = {
+  group: "tache" | "note" | "document" | "brouillon";
+  target: string;
+  title: string;
+  type: string;
+  date: string;
+  snippet: string;
+  section: string;
+  page: number | null;
+};
+
 export class ApiError extends Error {
   status: number;
   body: any;
@@ -191,6 +203,8 @@ export const api = {
   deleteNote: (path: string) => request("DELETE", "/api/notes" + q({ path })),
   journalToday: () => request<{ path: string }>("POST", "/api/journal/today"),
   search: (query: string) => request<SearchResult[]>("GET", "/api/search" + q({ q: query })),
+  globalSearch: (query: string) => request<GlobalHit[]>("GET", "/api/search/global" + q({ q: query })),
+  globalSearchMeaning: (query: string) => request<GlobalHit[]>("GET", "/api/search/global/meaning" + q({ q: query })),
   /** note (path) ou, à défaut, document de la bibliothèque (document) désigné par un lien [[…]] */
   resolve: (name: string) => request<{ path: string | null; document?: string }>("GET", "/api/resolve" + q({ name })),
   links: (path: string) =>

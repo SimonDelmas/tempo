@@ -4,12 +4,12 @@ import { ChatEntry, useChats } from "./chats";
 import ChatPanel, { useChatPanel } from "./components/ChatPanel";
 import DraftsView from "./components/DraftsView";
 import EditorPane, { EditorActions } from "./components/EditorPane";
+import GlobalSearch from "./components/GlobalSearch";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
 import LibraryView, { LibrarySidebar } from "./components/LibraryView";
 import NotesHome from "./components/NotesHome";
 import NotesSidebar from "./components/NotesSidebar";
-import QuickOpen from "./components/QuickOpen";
 import ReportsView from "./components/ReportsView";
 import RightPanel from "./components/RightPanel";
 import SpaceBar from "./components/SpaceBar";
@@ -41,7 +41,7 @@ export default function App() {
   const [inboxCount, setInboxCount] = useState(0);
   const [imputationMissing, setImputationMissing] = useState(0);
   const [libraryPending, setLibraryPending] = useState(0);
-  const [quickOpen, setQuickOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const lastRevision = useRef(-1);
   const lastRoutes = useRef(loadLastRoutes());
@@ -136,7 +136,7 @@ export default function App() {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "p") {
         e.preventDefault();
-        setQuickOpen(true);
+        setSearchOpen(true);
       }
       // Alt+J : journal du jour (créé s'il n'existe pas)
       if (e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "j") {
@@ -278,7 +278,8 @@ export default function App() {
           if (chatPanel.current === id) setChatPanel({ current: null });
         }} />
 
-      {quickOpen && <QuickOpen files={files} onOpen={open} onClose={() => setQuickOpen(false)} />}
+      {searchOpen && <GlobalSearch files={files} semantic={config.semantic_enabled} onOpen={open} notify={notify}
+        onClose={() => setSearchOpen(false)} />}
 
       <div className="toasts">
         {toasts.map((t) => (

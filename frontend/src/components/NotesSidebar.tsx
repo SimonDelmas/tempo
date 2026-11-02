@@ -169,7 +169,7 @@ export default function NotesSidebar({ files, current, semantic, onOpen, notify 
 
       <div className="search-row">
         <input className="search" value={query} onChange={(e) => setQuery(e.target.value)}
-          placeholder={byMeaning ? "Rechercher par le sens…" : "Rechercher…  (Ctrl+P : ouvrir)"} />
+          placeholder={byMeaning ? "Rechercher par le sens…" : "Rechercher…  (Ctrl+P : partout)"} />
         {semantic && (
           <button className={`ghost toggle ${byMeaning ? "on" : ""}`} onClick={() => setByMeaning((b) => !b)}
             title="Recherche par le sens (notes proches même sans les mêmes mots)">≈</button>

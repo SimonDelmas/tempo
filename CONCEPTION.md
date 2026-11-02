@@ -36,6 +36,7 @@ cœur applicatif (`tempo-core`), qui expose l'API `/api/*` sur un port local.
    reports.rs  rapport hebdo (4 sections) et rapport d'avancement de tâche
    imputations.rs  comptes d'imputation, heures par semaine, proposition de répartition, périodes de saisie
    semantic.rs embeddings des notes (sqlite-vec, .tempo/vectors.db) : recherche par le sens, notes proches
+   search.rs   recherche globale (Ctrl+P) : notes, tâches, documents, brouillons, sur les index existants
    library.rs  bibliothèque de documents : ingestion, file « À classer », thèmes, index (library.db), recherche
    convert/    conversion des documents en Markdown pivot (pandoc, pdfium, pptx, tableurs, mails, .doc / .ppt)
    assist.rs   actions IA de l'éditeur : extraction de tâches, résumé / reformulation
@@ -353,6 +354,17 @@ Chaque note (hors modèles et inbox) est découpée en passages d'environ 1 200 
 n'est revectorisée que si son hash change, et un changement de modèle repart de zéro.
 Usages : recherche par le sens, notes proches non liées (panneau de droite), outil du chat.
 
+## Recherche globale
+
+Ctrl+P, depuis tous les espaces (`search.rs`, `GlobalSearch.tsx`). Lecture seule et sans index
+propre : `GET /api/search/global` interroge l'index des notes, celui de la bibliothèque (mots
+seuls, sans charger le modèle d'embeddings) et parcourt `.brouillons/` ;
+`GET /api/search/global/meaning`, appelée à part et plus tard, ajoute les notes et documents
+proches par le sens (notes filtrées au seuil de similarité de la bibliothèque). Les résultats
+restent groupés par type, car les scores de deux index ne sont pas comparables ; un groupe dont
+un titre correspond passe devant, pour qu'Entrée n'ouvre pas autre chose quand le serveur répond.
+Les modèles et l'inbox en attente sont exclus.
+
 ## Bibliothèque
 
 Base documentaire gérée par l'application : les documents y sont ajoutés explicitement
@@ -516,7 +528,8 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Imputations : dates de dernière saisie, périodes avec bilan par compte et semaines à compléter, description des comptes
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [x] Menu de gauche : Journal, Tâches (sous-menu Backlog / Board au survol), Bibliothèque (onglets Notes, Bibliothèque, Rapports, Inbox), Imputations, Draft
-- [x] Raccourcis globaux : Alt+1…5 (entrées du menu), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (ouverture rapide), Alt+C (chat)
+- [x] Raccourcis globaux : Alt+1…5 (entrées du menu), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (recherche globale), Alt+C (chat)
+- [x] Recherche globale (V1) : notes, tâches, documents et brouillons groupés par type ; filtres (`type:`, `projet:`, statut, dates) à venir
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,
   y compris les propositions de l'inbox, du Draft et de l'extraction de tâches

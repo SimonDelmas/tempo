@@ -177,6 +177,10 @@ impl VectorStore {
             .collect())
     }
 
+    pub fn min_similarity(&self) -> f32 {
+        self.config.min_similarity
+    }
+
     /// Avancement : passages vectorisés sur le total, dernière erreur du modèle.
     pub fn status(&self) -> Result<Value> {
         let conn = self.conn.lock().unwrap();

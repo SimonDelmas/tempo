@@ -306,6 +306,8 @@ pub fn router(services: Arc<Services>, options: ApiOptions) -> Router {
         .route("/api/notes", get(read_note).put(write_note).post(create_note).delete(delete_note))
         .route("/api/journal/today", post(journal_today))
         .route("/api/search", get(search))
+        .route("/api/search/global", get(global_search))
+        .route("/api/search/global/meaning", get(global_search_meaning))
         .route("/api/resolve", get(resolve))
         .route("/api/links", get(links))
         // tâches
@@ -488,6 +490,14 @@ async fn journal_today(State(s): State<AppState>, Query(q): Query<DateParam>) ->
 
 async fn search(State(s): State<AppState>, Query(q): Query<SearchParam>) -> ApiResult {
     blocking(move || s.index.search(&q.q, 30)).await
+}
+
+async fn global_search(State(s): State<AppState>, Query(q): Query<SearchParam>) -> ApiResult {
+    blocking(move || crate::search::by_words(&s, &q.q, 8)).await
+}
+
+async fn global_search_meaning(State(s): State<AppState>, Query(q): Query<SearchParam>) -> ApiResult {
+    blocking(move || crate::search::by_meaning(&s, &q.q, 5)).await
 }
 
 async fn resolve(State(s): State<AppState>, Query(q): Query<NameParam>) -> ApiResult {

@@ -70,7 +70,12 @@ http://localhost:5173.
   précédente et passent à la suivante ; raccourcis modifiables avec `TEMPO_SHORTCUT_BACK` et
   `TEMPO_SHORTCUT_FORWARD` (ex. `Ctrl+Alt+ArrowLeft`, voir `.env.example`). Alt+J ouvre le
   journal du jour (créé au besoin), Alt+N ouvre l'espace Draft sur un nouveau brouillon, curseur
-  dans l'éditeur ; Ctrl+P ouvre une note par son nom.
+  dans l'éditeur.
+- **Recherche globale** (Ctrl+P, depuis n'importe quel espace) : notes, tâches, documents de la
+  bibliothèque et brouillons, avec extraits, groupés par type ; les titres s'affichent aussitôt,
+  le contenu puis les résultats « Proches par le sens » s'y ajoutent. Flèches et Entrée pour
+  ouvrir un résultat dans sa vue. Sans saisie : les notes récentes. Les modèles et l'inbox en
+  attente n'y figurent pas.
 - **Chat** : panneau à droite de l'application, accessible depuis tous les espaces. Il se
   réduit en une barre étroite (bouton », Alt+C ; Alt+C le déplie et place le curseur dans la
   saisie) et se redimensionne en glissant son bord gauche (double-clic : largeur par défaut) ;
