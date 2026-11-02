@@ -9,7 +9,7 @@ type Props = {
   notify: (message: string, error?: boolean) => void;
 };
 
-const SUMMARY_PROMPT = `Résume chaque mail/conversation au format suivant, séparés par "---" :
+const SUMMARY_PROMPT = `Résume chaque mail et conversation teams au format suivant, séparés par "---" :
 Source: mail|teams
 Date: AAAA-MM-JJ
 Sujet:
@@ -17,7 +17,9 @@ Participants:
 Résumé: (3-5 lignes, faits et décisions)
 Actions pour moi:
 Actions attendues des autres:
-Questions en suspens:`;
+Questions en suspens:
+
+Produit le résultat au format markdown`;
 
 const csv = (values: string[]) => values.join(", ");
 const fromCsv = (text: string) => text.split(",").map((s) => s.trim()).filter(Boolean);
