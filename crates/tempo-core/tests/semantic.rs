@@ -78,6 +78,10 @@ fn sync_is_incremental() {
 fn search_and_related() {
     let c = common::ctx();
     add_zeppelin(&c);
+    // rapport hebdomadaire qui reprend le contenu de la tâche : jamais suggéré
+    let report = "---\ntype: rapport\nkind: hebdo\nweek: 2026-S42\n---\n\n# Accès prod SAP\nObtenir l'accès prod SAP.\n";
+    c.vault.write("rapports/hebdo/2026-S42.md", report, None, false).unwrap();
+    c.index.upsert("rapports/hebdo/2026-S42.md").unwrap();
     let semantic = make(&c, None, "test");
     semantic.sync();
     let results = semantic.search("hangar du dirigeable à hélium", 10).unwrap();
@@ -86,7 +90,9 @@ fn search_and_related() {
     assert!(results.windows(2).all(|w| w[0].score >= w[1].score));
     let task = "taches/T-003-obtenir-acces-prod-sap.md";
     let related: HashSet<String> = semantic.related(task, 8).unwrap().into_iter().map(|r| r.path).collect();
-    assert!(!related.contains(task));
+    assert!(!related.is_empty() && !related.contains(task));
+    // ni journaux ni rapports hebdomadaires
+    assert!(related.iter().all(|p| !p.starts_with("journal/") && !p.starts_with("rapports/hebdo/")), "{related:?}");
     let linked: HashSet<String> = c.index.backlinks(task).unwrap().into_iter().map(|n| n.path).collect();
     assert!(related.is_disjoint(&linked)); // déjà liées : pas suggérées
 }

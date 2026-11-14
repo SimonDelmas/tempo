@@ -365,7 +365,14 @@ impl SemanticIndex {
 
     // --- recherche ----------------------------------------------------------
 
-    fn nearest(&self, vector: &[f32], k: usize, exclude: &HashSet<String>) -> Result<Vec<SemanticHit>> {
+    /// `skip` écarte des notes après coup (sans réduire le nombre de résultats rendus).
+    fn nearest(
+        &self,
+        vector: &[f32],
+        k: usize,
+        exclude: &HashSet<String>,
+        skip: impl Fn(&NoteRow) -> bool,
+    ) -> Result<Vec<SemanticHit>> {
         let Some(conn) = &self.conn else { return Ok(Vec::new()) };
         let rows: Vec<(String, String, f64)> = {
             let conn = conn.lock().unwrap();
@@ -379,7 +386,7 @@ impl SemanticIndex {
             )?;
             
             stmt
-                .query_map(params![pack(vector), (k * 4 + exclude.len() * 2) as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .query_map(params![pack(vector), (k * 8 + exclude.len() * 2) as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<rusqlite::Result<_>>()?
         };
         let mut best: IndexMap<String, (f64, String)> = IndexMap::new();
@@ -392,8 +399,11 @@ impl SemanticIndex {
         let mut ranked: Vec<(String, (f64, String))> = best.into_iter().collect();
         ranked.sort_by(|a, b| a.1 .0.total_cmp(&b.1 .0));
         let mut results = Vec::new();
-        for (path, (distance, text)) in ranked.into_iter().take(k) {
-            let Some(note) = self.index.get(&path)? else { continue };
+        for (path, (distance, text)) in ranked {
+            if results.len() >= k {
+                break;
+            }
+            let Some(note) = self.index.get(&path)?.filter(|n| !skip(n)) else { continue };
             // extrait sans le titre ajouté au passage ni les lignes de titre Markdown
             let body = text.split_once("\n\n").map(|(_, b)| b).unwrap_or(&text);
             let kept: Vec<&str> = body.lines().filter(|l| !l.trim_start().starts_with('#')).collect();
@@ -418,10 +428,12 @@ impl SemanticIndex {
             return Ok(Vec::new());
         };
         let vector = embedder(&[query.to_string()], EmbedKind::Query)?.into_iter().next().unwrap_or_default();
-        self.nearest(&vector, k, &HashSet::new())
+        self.nearest(&vector, k, &HashSet::new(), |_| false)
     }
 
-    /// Notes proches d'une note et pas encore liées à elle (suggestions de liens).
+    /// Notes proches d'une note et pas encore liées à elle (suggestions de liens). Les journaux
+    /// quotidiens et les rapports hebdomadaires ne sont jamais suggérés : ils agrègent l'activité
+    /// et ressemblent à tout.
     pub fn related(&self, path: &str, k: usize) -> Result<Vec<SemanticHit>> {
         let Some(conn) = &self.conn else { return Ok(Vec::new()) };
         let vectors: Vec<Vec<f32>> = {
@@ -444,8 +456,15 @@ impl SemanticIndex {
         let mut linked: HashSet<String> = HashSet::from([path.to_string()]);
         linked.extend(self.index.outlinks(path)?.into_iter().map(|n| n.path));
         linked.extend(self.index.backlinks(path)?.into_iter().map(|n| n.path));
-        self.nearest(&mean, k, &linked)
+        self.nearest(&mean, k, &linked, not_suggested)
     }
+}
+
+/// Notes exclues des suggestions de liens : journaux quotidiens et rapports hebdomadaires.
+fn not_suggested(note: &NoteRow) -> bool {
+    note.kind == "journal"
+        || note.path.starts_with("rapports/hebdo/")
+        || (note.kind == "rapport" && note.meta.get("kind").and_then(Value::as_str) == Some("hebdo"))
 }
 
 impl Drop for SemanticIndex {
