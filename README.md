@@ -22,7 +22,14 @@ powershell -ExecutionPolicy Bypass -File scripts/telecharger-outils.ps1
 cd src-tauri && cargo tauri build
 ```
 
-Le script télécharge dans `src-tauri/resources/` les outils de conversion de la bibliothèque
+Ou, en une commande (dépendances, outils, interface puis MSI ; `-Bundles msi,nsis` pour les
+deux installeurs, `-NoBundle` pour l'exécutable seul, `-Test` pour lancer les tests avant) :
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1
+```
+
+Le script `telecharger-outils.ps1` télécharge dans `src-tauri/resources/` les outils de conversion de la bibliothèque
 (`pandoc.exe`, `pdfium.dll`), livrés avec l'installeur ; en développement, ils y sont aussi
 cherchés (puis dans le PATH).
 

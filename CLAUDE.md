@@ -15,6 +15,7 @@ cargo test -p tempo-core --test chat nom # un test d'un fichier de tests/
 cargo run -p tempo-core --bin tempo-server   # serveur seul sur http://127.0.0.1:8765 (sert frontend/dist)
 cargo run -p tempo-app                   # application de bureau (build de développement)
 cd src-tauri && cargo tauri build        # installeurs NSIS / MSI dans target/release/bundle/
+powershell -ExecutionPolicy Bypass -File scripts/build-release.ps1   # build release complet (MSI par défaut)
 cd frontend && npm run build             # compile l'interface (tsc -b + vite build)
 cd frontend && npm run typecheck         # vérification TypeScript seule
 cd frontend && npm run dev               # Vite sur :5173, proxy /api → :8765 (lancer tempo-server à côté)
