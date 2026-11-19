@@ -157,6 +157,28 @@ main { flex: 1; overflow: auto; min-width: 0; }
   color: var(--muted); cursor: pointer;
 }
 .section-sort:hover { color: var(--accent); }
+/* calendrier de l'entrée Journal */
+.calendar { margin: 12px 4px 0; }
+.calendar-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.calendar-head .ghost { border: none; background: transparent; padding: 2px 8px; }
+.calendar-month { font-weight: 600; text-transform: capitalize; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.calendar-weekday { text-align: center; font-size: 11px; color: var(--muted); padding-bottom: 2px; }
+.calendar-day {
+  border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 4px 0;
+  font-size: 13px; text-align: center; color: var(--muted); cursor: pointer; position: relative;
+}
+.calendar-day.weekend { opacity: 0.7; }
+.calendar-day:hover { background: var(--accent-soft); }
+.calendar-day.has-note { color: var(--text); font-weight: 600; }
+.calendar-day.has-note::after {
+  content: ""; position: absolute; left: 50%; bottom: 1px; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: var(--accent);
+}
+.calendar-day.today { border-color: var(--accent); }
+.calendar-day.selected { background: var(--accent); color: #fff; }
+.calendar-day.selected::after { background: #fff; }
+.calendar p.small { margin: 8px 4px 0; }
 .pill { background: var(--accent); color: #fff; border-radius: 10px; padding: 0 7px; font-size: 12px; }
 .search { margin: 10px 0 6px; }
 .new-note { display: flex; flex-direction: column; gap: 6px; padding: 6px; }

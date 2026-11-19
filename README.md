@@ -120,7 +120,10 @@ http://localhost:5173.
   de droite, et outil de recherche par le sens pour l'agent du chat. Les notes sont
   vectorisées en arrière-plan dans `<vault>/.tempo/vectors.db` (sqlite-vec), seulement
   quand elles changent.
-- **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`.
+- **Journal du jour** : crée / ouvre `journal/AAAA/AAAA-MM-JJ.md`. L'entrée Journal a sa
+  propre barre latérale : le bouton « Journal du jour » et un calendrier (semaine du lundi au
+  dimanche) où les jours qui ont une note sont marqués d'un point ; cliquer une date ouvre son
+  journal, créé au besoin. Cliquer le nom du mois revient au mois courant.
 - **Arborescence** : les dossiers sont pliés par défaut, ceux de la note ouverte se
   déplient ; le bouton ⊞ / ⊟ à côté de la recherche déplie ou plie tout.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,

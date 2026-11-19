@@ -67,7 +67,9 @@ du système. Une seule instance tourne à la fois.
 Frontend : chaque vue a son adresse (`#/<espace>/<note>?…`, `router.ts`). Les espaces restent
 les unités d'adressage ; le menu de gauche (`MENU`) les présente autrement : `menuOf` rattache
 Notes, Bibliothèque, Rapports et Inbox à l'entrée Bibliothèque (`LIBRARY_TABS`, en onglets) et
-les notes de `journal/` à l'entrée Journal. Le routeur tient
+les notes de `journal/` à l'entrée Journal, dont la barre latérale (`JournalSidebar`) remplace
+l'arborescence par un calendrier : les jours marqués viennent de `/api/files`, un clic appelle
+`POST /api/journal/today?date=AAAA-MM-JJ` (création au besoin). Le routeur tient
 son propre historique des vues (pile + position) pour les boutons précédent / suivant, qui
 savent ainsi s'ils sont actifs ; ils respectent la garde de sortie des saisies non
 enregistrées. Les raccourcis viennent de `/api/config` (`TEMPO_SHORTCUT_BACK`,
@@ -529,6 +531,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Navigation vue précédente / suivante (boutons, raccourcis configurables, boutons de la souris)
 - [x] Menu de gauche : Journal, Tâches (sous-menu Backlog / Board au survol), Bibliothèque (onglets Notes, Bibliothèque, Rapports, Inbox), Imputations, Draft
 - [x] Raccourcis globaux : Alt+1…5 (entrées du menu), Alt+J (journal du jour), Alt+N (nouveau brouillon), Ctrl+P (recherche globale), Alt+C (chat)
+- [x] Barre latérale de l'entrée Journal : journal du jour et calendrier des notes quotidiennes
 - [x] Recherche globale (V1) : notes, tâches, documents et brouillons groupés par type ; filtres (`type:`, `projet:`, statut, dates) à venir
 - [x] Projets des tâches reliés aux notes `projets/` (liste déroulante, création d'un projet)
 - [x] Liste déroulante des projets (option « Nouveau projet… ») sur tous les champs projet,

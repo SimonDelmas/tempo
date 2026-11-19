@@ -201,7 +201,8 @@ export const api = {
   createNote: (type: string, title: string, projects: string[] = []) =>
     request<{ path: string }>("POST", "/api/notes", { type, title, projects }),
   deleteNote: (path: string) => request("DELETE", "/api/notes" + q({ path })),
-  journalToday: () => request<{ path: string }>("POST", "/api/journal/today"),
+  /** note du journal du jour, ou de `date` (AAAA-MM-JJ) ; créée si elle n'existe pas */
+  journalToday: (date?: string) => request<{ path: string }>("POST", "/api/journal/today" + (date ? q({ date }) : "")),
   search: (query: string) => request<SearchResult[]>("GET", "/api/search" + q({ q: query })),
   globalSearch: (query: string) => request<GlobalHit[]>("GET", "/api/search/global" + q({ q: query })),
   globalSearchMeaning: (query: string) => request<GlobalHit[]>("GET", "/api/search/global/meaning" + q({ q: query })),

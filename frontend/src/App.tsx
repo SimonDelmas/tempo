@@ -7,6 +7,7 @@ import EditorPane, { EditorActions } from "./components/EditorPane";
 import GlobalSearch from "./components/GlobalSearch";
 import ImputationsView from "./components/ImputationsView";
 import InboxView from "./components/InboxView";
+import JournalSidebar from "./components/JournalSidebar";
 import LibraryView, { LibrarySidebar } from "./components/LibraryView";
 import NotesHome from "./components/NotesHome";
 import NotesSidebar from "./components/NotesSidebar";
@@ -115,8 +116,9 @@ export default function App() {
     window.setTimeout(poll, 300);
   }, [poll, space]);
 
-  const openJournal = useCallback(() => {
-    api.journalToday().then((r) => open(r.path)).catch((err) => notify(err.message, true));
+  /** journal du jour, ou d'une date AAAA-MM-JJ (calendrier de l'entrée Journal) ; créé s'il n'existe pas */
+  const openJournal = useCallback((date?: string) => {
+    api.journalToday(date).then((r) => open(r.path)).catch((err) => notify(err.message, true));
   }, [open, notify]);
 
   const selectMenu = useCallback((entry: MenuId) => {
@@ -207,7 +209,7 @@ export default function App() {
     doc: params.doc, vue: params.vue, theme: params.theme, projet: params.projet, tag: params.tag, par: params.par, ...changes,
   }));
 
-  const sidebar = {
+  const spaceSidebar = {
     notes: <NotesSidebar files={files} current={path} semantic={config.semantic_enabled} onOpen={open}
       notify={notify} />,
     taches: <TasksSidebar revision={revision} current={path} tab={tasksTab} project={params.projet ?? null}
@@ -219,6 +221,10 @@ export default function App() {
     brouillons: null,
     bibliotheque: <LibrarySidebar revision={revision} params={params} pending={libraryPending} onNavigate={libraryNav} />,
   }[space];
+  // l'entrée Journal a sa propre barre : journal du jour et calendrier, sans l'arborescence des notes
+  const sidebar = menu === "journal"
+    ? <JournalSidebar files={files} current={path} onOpenDate={openJournal} />
+    : spaceSidebar;
 
   const home = {
     notes: <NotesHome files={files} onOpen={open} />,
