@@ -75,7 +75,8 @@ class MathWidget extends WidgetType {
   ignoreEvent() { return true; }
 }
 
-const setFocus = StateEffect.define<boolean>();
+/** focus de l'éditeur (sans focus, tout est rendu), partagé avec `blockPreview.tsx` */
+export const setFocus = StateEffect.define<boolean>();
 
 type MathState = { ranges: MathRange[]; focused: boolean; decorations: DecorationSet };
 

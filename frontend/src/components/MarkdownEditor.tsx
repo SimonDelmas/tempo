@@ -7,9 +7,12 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { autocompletion, Completion, CompletionContext, CompletionResult,
   completionKeymap } from "@codemirror/autocomplete";
-import { tags } from "@lezer/highlight";
+import { classHighlighter, tags } from "@lezer/highlight";
+import { languages } from "@codemirror/language-data";
 import { NoteSummary, today } from "../api";
 import { livePreview } from "../livePreview";
+import { codeBlockBackground } from "../blockPreview";
+import { TABLE_TEMPLATE, tableKeymap } from "../tableEdit";
 
 type Props = {
   initial: string;
@@ -138,6 +141,24 @@ export default function MarkdownEditor({ initial, files, onChange, onOpenLink, o
         { label: "/date", detail: "date du jour", apply: today() },
         { label: "/action", detail: "case à cocher", apply: "- [ ] " },
         {
+          label: "/tableau", detail: "tableau (Tab pour passer d'une cellule à l'autre)",
+          apply: (view, _c, f, t) => {
+            const line = view.state.doc.lineAt(f);
+            const prefix = line.from === f ? "" : "\n";
+            // curseur dans la première cellule d'en-tête, « Colonne 1 » sélectionné
+            const start = f + prefix.length + 2;
+            view.dispatch({ changes: { from: f, to: t, insert: prefix + TABLE_TEMPLATE },
+              selection: { anchor: start, head: start + "Colonne 1".length } });
+          },
+        },
+        { label: "/code", detail: "bloc de code", apply: (view, _c, f, t) => {
+          view.dispatch({ changes: { from: f, to: t, insert: "```\n\n```" }, selection: { anchor: f + 3 } });
+        } },
+        { label: "/mermaid", detail: "diagramme Mermaid", apply: (view, _c, f, t) => {
+          const insert = "```mermaid\nflowchart LR\n  A[Début] --> B[Fin]\n```\n";
+          view.dispatch({ changes: { from: f, to: t, insert }, selection: { anchor: f + 11 } });
+        } },
+        {
           label: "/reunion", detail: "sections de compte-rendu",
           apply: "## Participants\n\n## Points abordés\n\n## Décisions\n\n## Actions\n",
         },
@@ -155,10 +176,14 @@ export default function MarkdownEditor({ initial, files, onChange, onOpenLink, o
           highlightActiveLine(),
           EditorView.lineWrapping,
           editorTheme,
-          markdown({ base: markdownLanguage }),
+          markdown({ base: markdownLanguage, codeLanguages: languages }),
           syntaxHighlighting(markdownStyle),
+          // blocs de code : mêmes classes `tok-*` que le rendu du chat
+          syntaxHighlighting(classHighlighter),
           wikiLinks,
           frontmatter,
+          codeBlockBackground,
+          tableKeymap,
           previewMode.current.of(preview ? livePreview : []),
           placeholder("Écrivez… ([[ pour lier une note, / pour les commandes)"),
           autocompletion({ override: [linkCompletion, slashCompletion] }),

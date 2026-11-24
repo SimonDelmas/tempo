@@ -91,7 +91,8 @@ http://localhost:5173.
   vault (recherche par mots ou par phrase, recherche exacte ou par expression régulière,
   recherche par nom de note ou par propriété du frontmatter — ex. les réunions où une personne
   était présente —, lecture de notes, liste et historique des tâches), cite ses sources en
-  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau. Il interroge aussi la bibliothèque :
+  `[[liens]]` cliquables et affiche sa réponse au fil de l'eau, mise en forme comme dans l'éditeur
+  (tableaux, listes et cases à cocher, citations, code coloré, diagrammes Mermaid, formules). Il interroge aussi la bibliothèque :
   recherche de passages, lecture d'une section, de pages ou d'un document court, liste par thème ou
   projet ; chaque information tirée d'un document est citée (`[[document#section]]`,
   `[[document#p. 12]]`) et la citation vérifiée (le passage existe et l'agent l'a lu) : un clic ouvre le
@@ -127,12 +128,18 @@ http://localhost:5173.
 - **Arborescence** : les dossiers sont pliés par défaut, ceux de la note ouverte se
   déplient ; le bouton ⊞ / ⊟ à côté de la recherche déplie ou plie tout.
 - **Éditeur** : `[[` pour lier une note ou une tâche, `/` pour les commandes (`/tache`,
-  `/date`, `/action`, `/reunion`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour
+  `/date`, `/action`, `/reunion`, `/tableau`, `/code`, `/mermaid`), Ctrl+clic sur un lien pour l'ouvrir, Ctrl+P pour
   l'ouverture rapide. Sauvegarde automatique ; les modifications faites dans un autre
   éditeur sont rechargées, et un conflit est signalé si les deux versions divergent.
   Bouton **Aperçu** : aperçu en direct façon Obsidian (syntaxe Markdown masquée hors de la
   ligne en cours, puces, cases à cocher cliquables, formules
-  mathématiques `$0.2 m/s$` ou `$$…$$` rendues par KaTeX). Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
+  mathématiques `$0.2 m/s$` ou `$$…$$` rendues par KaTeX, tableaux mis en forme et blocs
+  `mermaid` dessinés ; un clic dans une cellule ou un diagramme réaffiche sa source). Les blocs
+  de code sont colorés selon leur langage (rust, python, sql…). Dans un tableau, Tab /
+  Maj+Tab passent d'une cellule à l'autre (une ligne est ajoutée après la dernière), Entrée
+  ajoute une ligne (sur une dernière ligne vide, sort du tableau), Alt+Maj+↑/↓ insère une ligne,
+  Alt+Maj+←/→ une colonne, Alt+Maj+Retour arrière supprime la ligne et Alt+Maj+Suppr la
+  colonne ; les colonnes sont réalignées à chaque commande. Menu **IA** : extraire des tâches de la note (à cocher avant création, doublons signalés,
   liens ajoutés en fin de note), résumer, reformuler ou lister les actions de la sélection
   (ou de la note entière) ; le résultat est relu avant d'être inséré.
 - **Tâches** : deux onglets inspirés d'Azure DevOps.

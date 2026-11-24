@@ -75,6 +75,17 @@ savent ainsi s'ils sont actifs ; ils respectent la garde de sortie des saisies n
 enregistrées. Les raccourcis viennent de `/api/config` (`TEMPO_SHORTCUT_BACK`,
 `TEMPO_SHORTCUT_FORWARD`, Alt+← / Alt+→ par défaut) et sont capturés avant l'éditeur.
 
+Markdown : l'éditeur (CodeMirror 6) et le rendu partagent l'analyseur lezer (CommonMark + GFM).
+`components/Markdown.tsx` convertit l'arbre en éléments React, sans HTML injecté (analyseur
+complété par les `[[liens]]` et les formules `$…$` dans `markdown/parser.ts`) ; il sert au chat
+et aux blocs de l'aperçu en direct (`blockPreview.tsx` : tableaux et blocs `mermaid` remplacés
+par leur rendu hors des lignes du curseur). `markdown/blocks.ts` colore le code
+(`@codemirror/language-data`, langages chargés à la demande, classes `tok-*` communes avec
+l'éditeur) et dessine les diagrammes (Mermaid chargé au premier diagramme, `securityLevel:
+strict`). `tableEdit.ts` édite les tableaux depuis la source : chaque commande relit le tableau
+sous le curseur, le transforme et le réécrit aligné. Le texte du fichier reste la seule donnée :
+les rendus ne modifient jamais le vault.
+
 Les traitements (disque, SQLite, appels au LLM) sont synchrones et exécutés hors du
 runtime async (`spawn_blocking`) ; la vectorisation tourne dans un thread de fond.
 
@@ -520,6 +531,7 @@ rapports, analyse inbox) sont configurables dans `.env`.
 - [x] Embeddings locaux (multilingual-e5-small, ONNX Runtime) quand aucune API n'est configurée
 - [x] Actions IA dans l'éditeur (extraire des tâches d'une note, résumer / reformuler une sélection)
 - [x] Aperçu en direct type Obsidian dans l'éditeur (syntaxe masquée hors de la ligne en cours, cases à cocher, formules `$…$` / `$$…$$` rendues par KaTeX)
+- [x] Markdown riche : tableaux (rendu et édition au clavier), blocs de code colorés et diagrammes Mermaid dans l'éditeur et le chat, avec un seul analyseur (lezer GFM)
 - [x] Chat avec les notes en lecture seule (outils via le mode json)
 - [x] Chat : actions d'écriture proposées puis validées, réponses en streaming (SSE)
 - [x] Chat : réponses poursuivies en arrière-plan, notification et non-lus à la fin d'une réponse hors de vue

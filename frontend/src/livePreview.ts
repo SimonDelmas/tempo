@@ -1,13 +1,15 @@
 import { syntaxTree } from "@codemirror/language";
 import { EditorState, Range } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
+import { blockPreview } from "./blockPreview";
 import { frontmatterEnd, inMath, mathPreview } from "./mathPreview";
 
 /**
  * Aperçu en direct façon Obsidian : hors des lignes où se trouve le curseur, la syntaxe
  * Markdown est masquée (#, **, `, [[ ]], [texte](url)), les puces deviennent des points et
  * les cases « - [ ] » des cases à cocher cliquables et les formules `$…$` / `$$…$$` sont rendues
- * par KaTeX (`mathPreview.ts`). Le texte du fichier n'est jamais modifié,
+ * par KaTeX (`mathPreview.ts`), tableaux et diagrammes Mermaid mis en forme
+ * (`blockPreview.tsx`). Le texte du fichier n'est jamais modifié,
  * sauf en cochant une case.
  */
 
@@ -158,4 +160,4 @@ const syntaxPreview = ViewPlugin.fromClass(
   },
 );
 
-export const livePreview = [mathPreview, syntaxPreview];
+export const livePreview = [mathPreview, blockPreview, syntaxPreview];
